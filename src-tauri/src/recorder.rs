@@ -135,7 +135,7 @@ impl Recorder {
         }
 
         let selected_text = if settings.text_mode == "command" {
-            Some(capture_selected_text()?)
+            Some(capture_selected_text(app)?)
         } else {
             None
         };
@@ -165,7 +165,7 @@ impl Recorder {
 
         // Auto-paste
         if !final_text.is_empty() {
-            paste_text(&final_text)?;
+            paste_text(app, &final_text)?;
         }
 
         Ok(final_text)

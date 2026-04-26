@@ -86,12 +86,12 @@ fn emit_error_feedback(app: &tauri::AppHandle, detail: &str) {
     let (title, normalized_detail) = if detail.contains("Copy automation failed") {
         (
             "Command mode needs Accessibility access",
-            "Typr could not read your selected text because macOS blocked copy automation. In dev mode, enable Accessibility for the Typr debug binary and, if needed, your terminal app or /usr/bin/osascript.".to_string(),
+            "Typr could not read your selected text because macOS blocked copy automation. Enable Accessibility for Typr, or for the debug binary while running from cargo.".to_string(),
         )
     } else if detail.contains("Paste automation failed") {
         (
             "Paste permission failed",
-            "Typr captured text, but macOS blocked paste automation. In dev mode, enable Accessibility for the Typr debug binary and, if needed, your terminal app or /usr/bin/osascript.".to_string(),
+            "Typr captured text, but macOS blocked paste automation. Enable Accessibility for Typr, or for the debug binary while running from cargo.".to_string(),
         )
     } else if detail.contains("selected text") {
         (
@@ -268,7 +268,7 @@ fn get_setup_status() -> SetupStatus {
     let steps = if cfg!(target_os = "macos") {
         vec![
             "Allow microphone access for Typr when macOS prompts you.".to_string(),
-            "Grant Accessibility access so Typr can paste text into other apps. In dev mode, you may also need to allow your terminal app or /usr/bin/osascript.".to_string(),
+            "Grant Accessibility access so Typr can copy selections and paste text into other apps. In dev mode, add the target/debug/typr binary if needed.".to_string(),
             "Keep LM Studio running if you use Polished or Command mode with a local rewrite model."
                 .to_string(),
         ]
@@ -302,13 +302,18 @@ fn list_history_entries(state: State<AppState>) -> Result<Vec<HistoryEntry>, Str
 }
 
 #[tauri::command]
-fn paste_history_entry(state: State<AppState>, id: String) -> Result<(), String> {
+fn paste_history_entry(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    id: String,
+) -> Result<(), String> {
     let entry = history::get_history_entry(&state.app_dir, &id)?;
-    paste_text(&entry.final_text)
+    paste_text(&app, &entry.final_text)
 }
 
 #[tauri::command]
 async fn reprocess_history_entry(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     id: String,
 ) -> Result<HistoryEntry, String> {
@@ -333,7 +338,7 @@ async fn reprocess_history_entry(
     history::update_history_entry(&state.app_dir, &entry)?;
 
     if !next_text.is_empty() {
-        if let Err(err) = paste_text(&next_text) {
+        if let Err(err) = paste_text(&app, &next_text) {
             return Err(format!(
                 "REPROCESS_PASTE_FAILED: History entry was updated and saved, but paste failed: {}",
                 err

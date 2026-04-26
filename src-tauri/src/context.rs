@@ -1,7 +1,9 @@
+use tauri::AppHandle;
+
 use std::thread;
 use std::time::Duration;
 
-pub fn capture_selected_text() -> Result<String, String> {
+pub fn capture_selected_text(app: &AppHandle) -> Result<String, String> {
     let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
     let previous_text = clipboard.get_text().ok();
     let marker = format!(
@@ -17,7 +19,7 @@ pub fn capture_selected_text() -> Result<String, String> {
         .map_err(|e| format!("Failed to prepare clipboard for selection capture: {}", e))?;
 
     let capture_result = (|| -> Result<String, String> {
-        trigger_copy_shortcut()?;
+        trigger_copy_shortcut(app)?;
         thread::sleep(Duration::from_millis(120));
 
         let clipboard_text = clipboard
@@ -31,21 +33,10 @@ pub fn capture_selected_text() -> Result<String, String> {
     capture_result
 }
 
-fn trigger_copy_shortcut() -> Result<(), String> {
+fn trigger_copy_shortcut(app: &AppHandle) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        let output = std::process::Command::new("osascript")
-            .args([
-                "-e",
-                r#"tell application "System Events" to keystroke "c" using command down"#,
-            ])
-            .output()
-            .map_err(|e| format!("Failed to simulate copy shortcut: {}", e))?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("Copy automation failed: {}", stderr.trim()));
-        }
+        run_macos_shortcut(app, 'c').map_err(|err| format!("Copy automation failed: {}", err))?;
     }
 
     #[cfg(target_os = "windows")]
@@ -76,6 +67,44 @@ fn trigger_copy_shortcut() -> Result<(), String> {
     }
 
     Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn run_macos_shortcut(app: &AppHandle, key: char) -> Result<(), String> {
+    use enigo::{Direction, Enigo, Key, Keyboard, Settings};
+    use std::sync::mpsc;
+
+    let (tx, rx) = mpsc::channel();
+    app.run_on_main_thread(move || {
+        let result = (|| -> Result<(), String> {
+            let mut enigo = Enigo::new(&Settings::default()).map_err(|e| e.to_string())?;
+            enigo
+                .key(Key::Meta, Direction::Press)
+                .map_err(|e| e.to_string())?;
+            let click_result = enigo
+                .key(Key::Unicode(key), Direction::Click)
+                .map_err(|e| e.to_string());
+            let release_result = enigo
+                .key(Key::Meta, Direction::Release)
+                .map_err(|e| e.to_string());
+
+            match (click_result, release_result) {
+                (Err(click_err), Err(release_err)) => Err(format!(
+                    "{}. Also failed to release Command: {}",
+                    click_err, release_err
+                )),
+                (Err(click_err), Ok(())) => Err(click_err),
+                (Ok(()), Err(release_err)) => Err(release_err),
+                (Ok(()), Ok(())) => Ok(()),
+            }
+        })();
+
+        let _ = tx.send(result);
+    })
+    .map_err(|e| format!("Failed to schedule macOS keyboard shortcut: {}", e))?;
+
+    rx.recv()
+        .map_err(|e| format!("Failed to receive macOS keyboard shortcut result: {}", e))?
 }
 
 fn restore_previous_clipboard_text(

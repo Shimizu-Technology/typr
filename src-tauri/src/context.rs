@@ -55,12 +55,24 @@ fn trigger_copy_shortcut() -> Result<(), String> {
         enigo
             .key(Key::Control, Direction::Press)
             .map_err(|e| e.to_string())?;
-        enigo
+        let click_result = enigo
             .key(Key::Unicode('c'), Direction::Click)
-            .map_err(|e| e.to_string())?;
-        enigo
+            .map_err(|e| e.to_string());
+        let release_result = enigo
             .key(Key::Control, Direction::Release)
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| e.to_string());
+
+        match (click_result, release_result) {
+            (Err(click_err), Err(release_err)) => {
+                return Err(format!(
+                    "Copy keypress failed: {}. Also failed to release Control: {}",
+                    click_err, release_err
+                ));
+            }
+            (Err(click_err), Ok(())) => return Err(click_err),
+            (Ok(()), Err(release_err)) => return Err(release_err),
+            (Ok(()), Ok(())) => {}
+        }
     }
 
     Ok(())

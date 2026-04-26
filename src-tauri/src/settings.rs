@@ -78,7 +78,39 @@ impl Settings {
         let path = Self::config_path(app_dir);
         fs::create_dir_all(app_dir).map_err(|e| e.to_string())?;
         let json = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
-        fs::write(&path, json).map_err(|e| e.to_string())
+        let temp_path = app_dir.join(format!("config.json.tmp.{}", std::process::id()));
+
+        fs::write(&temp_path, json).map_err(|e| e.to_string())?;
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            fs::rename(&temp_path, &path).map_err(|e| e.to_string())?;
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            if path.exists() {
+                let backup_path = app_dir.join("config.json.bak");
+                let _ = fs::remove_file(&backup_path);
+
+                fs::rename(&path, &backup_path).map_err(|e| e.to_string())?;
+
+                match fs::rename(&temp_path, &path) {
+                    Ok(()) => {
+                        let _ = fs::remove_file(&backup_path);
+                    }
+                    Err(err) => {
+                        let _ = fs::rename(&backup_path, &path);
+                        let _ = fs::remove_file(&temp_path);
+                        return Err(err.to_string());
+                    }
+                }
+            } else {
+                fs::rename(&temp_path, &path).map_err(|e| e.to_string())?;
+            }
+        }
+
+        Ok(())
     }
 }
 

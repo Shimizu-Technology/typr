@@ -1,5 +1,6 @@
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use serde_json::json;
+use std::time::Duration;
 
 use crate::cleanup::cleanup_text;
 use crate::secrets::{get_secret, SecretKind};
@@ -35,7 +36,10 @@ impl TransformProvider {
             } => {
                 let prompt = build_mode_prompt(request, text);
                 let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
-                let client = reqwest::Client::new();
+                let client = reqwest::Client::builder()
+                    .timeout(Duration::from_secs(30))
+                    .build()
+                    .map_err(|e| format!("Failed to build transform client: {}", e))?;
                 let mut request_builder = client
                     .post(url)
                     .header(CONTENT_TYPE, "application/json")

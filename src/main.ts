@@ -37,6 +37,19 @@ interface ReadinessStatus {
   issues: ReadinessIssue[];
 }
 
+interface SetupCheck {
+  title: string;
+  ok: boolean;
+  detail: string;
+}
+
+interface SetupStatus {
+  platform: string;
+  summary: string;
+  steps: string[];
+  checks: SetupCheck[];
+}
+
 interface DownloadProgress {
   downloaded: number;
   total: number;
@@ -62,6 +75,12 @@ const readinessSummary = document.getElementById("readiness-summary")!;
 const readinessList = document.getElementById("readiness-list")!;
 const readinessRefreshBtn = document.getElementById(
   "readiness-refresh-btn",
+) as HTMLButtonElement;
+const setupSummary = document.getElementById("setup-summary")!;
+const setupCheckList = document.getElementById("setup-check-list")!;
+const setupStepsList = document.getElementById("setup-steps-list")!;
+const setupRefreshBtn = document.getElementById(
+  "setup-refresh-btn",
 ) as HTMLButtonElement;
 const historyList = document.getElementById("history-list")!;
 const historyClearBtn = document.getElementById(
@@ -184,6 +203,7 @@ async function loadSettings() {
   // Hotkey
   renderHotkey(currentSettings.hotkey);
   await refreshReadinessStatus();
+  await refreshSetupStatus();
   await loadHistoryEntries();
 }
 
@@ -267,6 +287,32 @@ async function refreshReadinessStatus() {
       <div class="readiness-item-detail">${issue.detail}</div>
     `;
     readinessList.appendChild(item);
+  });
+}
+
+async function refreshSetupStatus() {
+  const setup = await invoke<SetupStatus>("get_setup_status");
+  setupSummary.textContent = setup.summary;
+  setupSummary.className = setup.checks.every((check) => check.ok)
+    ? "readiness-summary ready"
+    : "readiness-summary blocked";
+
+  setupCheckList.innerHTML = "";
+  setup.checks.forEach((check) => {
+    const item = document.createElement("div");
+    item.className = `readiness-item ${check.ok ? "readiness-item-ok" : "readiness-item-warning"}`;
+    item.innerHTML = `
+      <div class="readiness-item-title">${escapeHtml(check.title)}</div>
+      <div class="readiness-item-detail">${escapeHtml(check.detail)}</div>
+    `;
+    setupCheckList.appendChild(item);
+  });
+
+  setupStepsList.innerHTML = "";
+  setup.steps.forEach((step) => {
+    const item = document.createElement("li");
+    item.textContent = step;
+    setupStepsList.appendChild(item);
   });
 }
 
@@ -533,6 +579,7 @@ transformClearBtn.addEventListener("click", () =>
   clearSecret("transform", transformApiKey),
 );
 readinessRefreshBtn.addEventListener("click", () => refreshReadinessStatus());
+setupRefreshBtn.addEventListener("click", () => refreshSetupStatus());
 historyClearBtn.addEventListener("click", async () => {
   await invoke("clear_history_entries");
   await loadHistoryEntries();

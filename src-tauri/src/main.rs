@@ -10,7 +10,7 @@ use typr_lib::audio;
 use typr_lib::downloader;
 use typr_lib::history;
 use typr_lib::history::HistoryEntry;
-use typr_lib::paste::paste_text;
+use typr_lib::paste::{check_paste_permission_status, paste_text};
 use typr_lib::recorder::{Recorder, RecordingState};
 use typr_lib::secrets;
 use typr_lib::settings::Settings;
@@ -38,6 +38,23 @@ struct ReadinessStatus {
     can_record: bool,
     summary: String,
     issues: Vec<ReadinessIssue>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SetupCheck {
+    title: String,
+    ok: bool,
+    detail: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SetupStatus {
+    platform: String,
+    summary: String,
+    steps: Vec<String>,
+    checks: Vec<SetupCheck>,
 }
 
 fn get_app_dir() -> PathBuf {
@@ -114,6 +131,78 @@ fn set_provider_secret(kind: String, value: String) -> Result<(), String> {
 fn clear_provider_secret(kind: String) -> Result<(), String> {
     let kind = secrets::parse_secret_kind(&kind)?;
     secrets::delete_secret(kind)
+}
+
+#[tauri::command]
+fn get_setup_status(state: State<AppState>) -> SetupStatus {
+    let audio_status = audio::audio_input_status();
+    let paste_status = check_paste_permission_status();
+
+    let mut checks = vec![SetupCheck {
+        title: "Microphone devices".to_string(),
+        ok: audio_status.input_device_count > 0,
+        detail: if audio_status.input_device_count > 0 {
+            format!(
+                "{} input device{} found{}.",
+                audio_status.input_device_count,
+                if audio_status.input_device_count == 1 {
+                    ""
+                } else {
+                    "s"
+                },
+                if audio_status.has_default_input {
+                    " with a default microphone available"
+                } else {
+                    ", but no default microphone is selected by the OS"
+                }
+            )
+        } else {
+            "No input devices were detected. Check your audio hardware or OS privacy settings."
+                .to_string()
+        },
+    }];
+
+    checks.push(SetupCheck {
+        title: "Paste automation".to_string(),
+        ok: paste_status.ready,
+        detail: paste_status.detail,
+    });
+
+    let summary = if checks.iter().all(|check| check.ok) {
+        "Setup checks look healthy.".to_string()
+    } else {
+        "One or more setup checks need attention.".to_string()
+    };
+
+    let steps = if cfg!(target_os = "macos") {
+        vec![
+            "Allow microphone access for Typr when macOS prompts you.".to_string(),
+            "Grant Accessibility access so Typr can paste text into other apps.".to_string(),
+            "Keep LM Studio running if you use Polished or Command mode with a local rewrite model."
+                .to_string(),
+        ]
+    } else if cfg!(target_os = "windows") {
+        vec![
+            "Confirm your preferred microphone is available in Windows sound settings.".to_string(),
+            "If paste automation fails in a target app, run Typr with enough privileges to send keyboard input."
+                .to_string(),
+            "Keep LM Studio running if you use Polished or Command mode with a local rewrite model."
+                .to_string(),
+        ]
+    } else {
+        vec![
+            "Confirm your preferred microphone is available before starting Typr.".to_string(),
+            "Verify clipboard and keyboard injection permissions for your desktop environment."
+                .to_string(),
+        ]
+    };
+
+    SetupStatus {
+        platform: std::env::consts::OS.to_string(),
+        summary,
+        steps,
+        checks,
+    }
 }
 
 #[tauri::command]
@@ -488,6 +577,7 @@ fn main() {
             get_secret_status,
             set_provider_secret,
             clear_provider_secret,
+            get_setup_status,
             list_history_entries,
             paste_history_entry,
             reprocess_history_entry,

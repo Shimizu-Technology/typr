@@ -268,6 +268,14 @@ body {
   border-radius: var(--radius-lg);
 }
 
+.setup-card {
+  margin-bottom: 28px;
+  padding: 16px;
+  background: linear-gradient(180deg, rgba(62, 207, 110, 0.08), rgba(19, 19, 22, 0.96));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
 .readiness-card-header {
   display: flex;
   align-items: flex-start;
@@ -295,6 +303,24 @@ body {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.setup-check-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.setup-steps ul {
+  margin-left: 18px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.setup-steps li + li {
+  margin-top: 4px;
 }
 
 .history-toolbar {

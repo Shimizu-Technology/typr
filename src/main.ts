@@ -827,8 +827,12 @@ historyList.addEventListener("click", async (event) => {
     }
   } catch (error) {
     if (action === "reprocess") {
-      await loadHistoryEntries();
       const feedback = parseReprocessFailure(error);
+      try {
+        await loadHistoryEntries();
+      } catch (reloadError) {
+        feedback.detail = `${feedback.detail} Typr also could not refresh local history: ${toErrorDetail(reloadError)}`;
+      }
       showFeedback(feedback);
       return;
     }

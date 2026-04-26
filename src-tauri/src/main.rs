@@ -161,7 +161,14 @@ fn set_hotkey(
 
     if let Err(err) = next_settings.save(&state.app_dir) {
         if previous_hotkey != next_settings.hotkey {
-            rebind_hotkey(&app, state.inner(), &next_settings.hotkey, &previous_hotkey)?;
+            if let Err(rollback_err) =
+                rebind_hotkey(&app, state.inner(), &next_settings.hotkey, &previous_hotkey)
+            {
+                return Err(format!(
+                    "{}. Failed to restore previous hotkey after save failure: {}",
+                    err, rollback_err
+                ));
+            }
         }
         return Err(err);
     }

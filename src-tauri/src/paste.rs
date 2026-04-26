@@ -12,21 +12,22 @@ pub fn check_paste_permission_status() -> PastePermissionStatus {
         match std::process::Command::new("osascript")
             .args([
                 "-e",
-                r#"tell application "System Events" to get name of first application process whose frontmost is true"#,
+                r#"tell application "System Events" to keystroke "" using command down"#,
             ])
             .output()
         {
             Ok(output) if output.status.success() => PastePermissionStatus {
                 supported: true,
                 ready: true,
-                detail: "Accessibility automation looks available for paste injection."
-                    .to_string(),
+                detail:
+                    "Accessibility automation looks available for selection capture and paste injection."
+                        .to_string(),
             },
             Ok(output) => PastePermissionStatus {
                 supported: true,
                 ready: false,
                 detail: format!(
-                    "Paste automation is blocked. macOS usually needs Accessibility access for Typr. {}",
+                    "Paste automation is blocked. macOS usually needs Accessibility access for Typr before it can copy selections or paste text. {}",
                     String::from_utf8_lossy(&output.stderr).trim()
                 ),
             },

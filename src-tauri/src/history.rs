@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
@@ -7,6 +8,11 @@ use serde::{Deserialize, Serialize};
 use crate::settings::Settings;
 
 const HISTORY_LIMIT: usize = 100;
+
+fn history_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -23,36 +29,34 @@ pub struct HistoryEntry {
 }
 
 pub fn list_history(app_dir: &Path) -> Result<Vec<HistoryEntry>, String> {
-    let path = history_path(app_dir);
-    match fs::read_to_string(path) {
-        Ok(contents) => serde_json::from_str(&contents)
-            .map_err(|e| format!("Failed to parse history file: {}", e)),
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
-        Err(err) => Err(format!("Failed to read history file: {}", err)),
-    }
+    let _guard = history_lock().lock().unwrap();
+    list_history_unlocked(app_dir)
 }
 
 pub fn append_history_entry(app_dir: &Path, entry: HistoryEntry) -> Result<(), String> {
-    let mut entries = list_history(app_dir)?;
+    let _guard = history_lock().lock().unwrap();
+    let mut entries = list_history_unlocked(app_dir)?;
     entries.insert(0, entry);
     if entries.len() > HISTORY_LIMIT {
         entries.truncate(HISTORY_LIMIT);
     }
-    save_history(app_dir, &entries)
+    save_history_unlocked(app_dir, &entries)
 }
 
 pub fn update_history_entry(app_dir: &Path, entry: &HistoryEntry) -> Result<(), String> {
-    let mut entries = list_history(app_dir)?;
+    let _guard = history_lock().lock().unwrap();
+    let mut entries = list_history_unlocked(app_dir)?;
     let Some(index) = entries.iter().position(|item| item.id == entry.id) else {
         return Err("History entry not found.".to_string());
     };
 
     entries[index] = entry.clone();
-    save_history(app_dir, &entries)
+    save_history_unlocked(app_dir, &entries)
 }
 
 pub fn get_history_entry(app_dir: &Path, id: &str) -> Result<HistoryEntry, String> {
-    let entries = list_history(app_dir)?;
+    let _guard = history_lock().lock().unwrap();
+    let entries = list_history_unlocked(app_dir)?;
     entries
         .into_iter()
         .find(|entry| entry.id == id)
@@ -60,7 +64,8 @@ pub fn get_history_entry(app_dir: &Path, id: &str) -> Result<HistoryEntry, Strin
 }
 
 pub fn delete_history_entry(app_dir: &Path, id: &str) -> Result<(), String> {
-    let mut entries = list_history(app_dir)?;
+    let _guard = history_lock().lock().unwrap();
+    let mut entries = list_history_unlocked(app_dir)?;
     let initial_len = entries.len();
     entries.retain(|entry| entry.id != id);
 
@@ -68,11 +73,22 @@ pub fn delete_history_entry(app_dir: &Path, id: &str) -> Result<(), String> {
         return Err("History entry not found.".to_string());
     }
 
-    save_history(app_dir, &entries)
+    save_history_unlocked(app_dir, &entries)
 }
 
 pub fn clear_history(app_dir: &Path) -> Result<(), String> {
-    save_history(app_dir, &Vec::new())
+    let _guard = history_lock().lock().unwrap();
+    save_history_unlocked(app_dir, &Vec::new())
+}
+
+fn list_history_unlocked(app_dir: &Path) -> Result<Vec<HistoryEntry>, String> {
+    let path = history_path(app_dir);
+    match fs::read_to_string(path) {
+        Ok(contents) => serde_json::from_str(&contents)
+            .map_err(|e| format!("Failed to parse history file: {}", e)),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(err) => Err(format!("Failed to read history file: {}", err)),
+    }
 }
 
 pub fn build_history_entry(
@@ -103,12 +119,12 @@ fn history_path(app_dir: &Path) -> PathBuf {
     app_dir.join("history.json")
 }
 
-fn save_history(app_dir: &Path, entries: &[HistoryEntry]) -> Result<(), String> {
+fn save_history_unlocked(app_dir: &Path, entries: &[HistoryEntry]) -> Result<(), String> {
     fs::create_dir_all(app_dir).map_err(|e| format!("Failed to create app directory: {}", e))?;
     let json = serde_json::to_string_pretty(entries)
         .map_err(|e| format!("Failed to serialize history entries: {}", e))?;
     let path = history_path(app_dir);
-    let temp_path = app_dir.join("history.json.tmp");
+    let temp_path = app_dir.join(format!("history.json.tmp.{}", std::process::id()));
 
     fs::write(&temp_path, json).map_err(|e| format!("Failed to write temp history: {}", e))?;
 

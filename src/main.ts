@@ -794,6 +794,9 @@ historyList.addEventListener("click", async (event) => {
       });
     }
   } catch (error) {
+    if (action === "reprocess") {
+      await loadHistoryEntries();
+    }
     showFeedback({
       level: "error",
       title: "History action failed",

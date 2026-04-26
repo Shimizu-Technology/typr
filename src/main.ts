@@ -198,6 +198,28 @@ function toErrorDetail(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function parseReprocessFailure(error: unknown): {
+  level: "error" | "warning";
+  title: string;
+  detail: string;
+} {
+  const detail = toErrorDetail(error);
+
+  if (detail.startsWith("REPROCESS_PASTE_FAILED:")) {
+    return {
+      level: "warning",
+      title: "History entry updated, but paste failed",
+      detail: detail.replace("REPROCESS_PASTE_FAILED:", "").trim(),
+    };
+  }
+
+  return {
+    level: "error",
+    title: "History action failed",
+    detail,
+  };
+}
+
 function runAsyncAction(
   action: () => Promise<void>,
   failureTitle: string,
@@ -797,6 +819,9 @@ historyList.addEventListener("click", async (event) => {
   } catch (error) {
     if (action === "reprocess") {
       await loadHistoryEntries();
+      const feedback = parseReprocessFailure(error);
+      showFeedback(feedback);
+      return;
     }
     showFeedback({
       level: "error",

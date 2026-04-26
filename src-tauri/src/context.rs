@@ -87,7 +87,7 @@ fn restore_previous_clipboard_text(
             let _ = clipboard.set_text(previous_text);
         }
         None => {
-            let _ = clipboard.set_text(String::new());
+            let _ = clipboard.clear();
         }
     }
 }

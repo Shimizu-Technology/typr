@@ -199,7 +199,7 @@ fn clear_provider_secret(kind: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn get_setup_status(state: State<AppState>) -> SetupStatus {
+fn get_setup_status() -> SetupStatus {
     let audio_status = audio::audio_input_status();
     let paste_status = check_paste_permission_status();
 
@@ -307,7 +307,12 @@ async fn reprocess_history_entry(
     history::update_history_entry(&state.app_dir, &entry)?;
 
     if !next_text.is_empty() {
-        paste_text(&next_text)?;
+        if let Err(err) = paste_text(&next_text) {
+            return Err(format!(
+                "REPROCESS_PASTE_FAILED: History entry was updated and saved, but paste failed: {}",
+                err
+            ));
+        }
     }
 
     Ok(entry)

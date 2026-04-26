@@ -197,6 +197,26 @@ function toErrorDetail(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function buildStatusItem(
+  title: string,
+  detail: string,
+  className: string,
+): HTMLDivElement {
+  const item = document.createElement("div");
+  item.className = className;
+
+  const titleElement = document.createElement("div");
+  titleElement.className = "readiness-item-title";
+  titleElement.textContent = title;
+
+  const detailElement = document.createElement("div");
+  detailElement.className = "readiness-item-detail";
+  detailElement.textContent = detail;
+
+  item.append(titleElement, detailElement);
+  return item;
+}
+
 async function loadSettings() {
   currentSettings = await invoke<Settings>("get_settings");
 
@@ -301,24 +321,24 @@ async function refreshReadinessStatus() {
   readinessList.innerHTML = "";
 
   if (readiness.issues.length === 0) {
-    const item = document.createElement("div");
-    item.className = "readiness-item readiness-item-ok";
-    item.innerHTML = `
-      <div class="readiness-item-title">All core checks passed</div>
-      <div class="readiness-item-detail">Hotkey, engine, and active mode configuration look good.</div>
-    `;
-    readinessList.appendChild(item);
+    readinessList.appendChild(
+      buildStatusItem(
+        "All core checks passed",
+        "Hotkey, engine, and active mode configuration look good.",
+        "readiness-item readiness-item-ok",
+      ),
+    );
     return;
   }
 
   readiness.issues.forEach((issue) => {
-    const item = document.createElement("div");
-    item.className = `readiness-item readiness-item-${issue.level}`;
-    item.innerHTML = `
-      <div class="readiness-item-title">${issue.title}</div>
-      <div class="readiness-item-detail">${issue.detail}</div>
-    `;
-    readinessList.appendChild(item);
+    readinessList.appendChild(
+      buildStatusItem(
+        issue.title,
+        issue.detail,
+        `readiness-item readiness-item-${issue.level}`,
+      ),
+    );
   });
 }
 
@@ -331,13 +351,13 @@ async function refreshSetupStatus() {
 
   setupCheckList.innerHTML = "";
   setup.checks.forEach((check) => {
-    const item = document.createElement("div");
-    item.className = `readiness-item ${check.ok ? "readiness-item-ok" : "readiness-item-warning"}`;
-    item.innerHTML = `
-      <div class="readiness-item-title">${escapeHtml(check.title)}</div>
-      <div class="readiness-item-detail">${escapeHtml(check.detail)}</div>
-    `;
-    setupCheckList.appendChild(item);
+    setupCheckList.appendChild(
+      buildStatusItem(
+        check.title,
+        check.detail,
+        `readiness-item ${check.ok ? "readiness-item-ok" : "readiness-item-warning"}`,
+      ),
+    );
   });
 
   setupStepsList.innerHTML = "";
@@ -368,17 +388,43 @@ async function storeSecret(kind: "groq" | "transform", input: HTMLInputElement) 
   const value = input.value.trim();
   if (!value) return;
 
-  await invoke("set_provider_secret", { kind, value });
-  input.value = "";
-  await refreshSecretStatus();
-  await refreshReadinessStatus();
+  try {
+    await invoke("set_provider_secret", { kind, value });
+    input.value = "";
+    await refreshSecretStatus();
+    await refreshReadinessStatus();
+    showFeedback({
+      level: "success",
+      title: "Secret stored securely",
+      detail: "Typr saved that provider credential to OS keychain storage.",
+    });
+  } catch (error) {
+    showFeedback({
+      level: "error",
+      title: "Could not store secret",
+      detail: toErrorDetail(error),
+    });
+  }
 }
 
 async function clearSecret(kind: "groq" | "transform", input: HTMLInputElement) {
-  await invoke("clear_provider_secret", { kind });
-  input.value = "";
-  await refreshSecretStatus();
-  await refreshReadinessStatus();
+  try {
+    await invoke("clear_provider_secret", { kind });
+    input.value = "";
+    await refreshSecretStatus();
+    await refreshReadinessStatus();
+    showFeedback({
+      level: "success",
+      title: "Secret removed",
+      detail: "Typr removed that provider credential from OS keychain storage.",
+    });
+  } catch (error) {
+    showFeedback({
+      level: "error",
+      title: "Could not clear secret",
+      detail: toErrorDetail(error),
+    });
+  }
 }
 
 async function loadHistoryEntries() {

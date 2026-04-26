@@ -196,8 +196,13 @@ fn get_secret_status() -> Result<secrets::SecretStatus, String> {
 
 #[tauri::command]
 fn set_provider_secret(kind: String, value: String) -> Result<(), String> {
+    let trimmed_value = value.trim();
+    if trimmed_value.is_empty() {
+        return Err("Secret value must not be empty.".to_string());
+    }
+
     let kind = secrets::parse_secret_kind(&kind)?;
-    secrets::set_secret(kind, &value)
+    secrets::set_secret(kind, trimmed_value)
 }
 
 #[tauri::command]

@@ -121,13 +121,23 @@ pub async fn apply_text_transform(
 
 fn build_transform_provider(settings: &Settings) -> Result<TransformProvider, String> {
     match settings.transform_provider.as_str() {
-        "lmstudio" | "openai-compatible" => {
+        "lmstudio" => {
             let api_key = get_nonempty_secret(SecretKind::TransformApiKey)?;
 
             Ok(TransformProvider::OpenAiCompatible {
                 base_url: settings.transform_base_url.clone(),
                 model: settings.transform_model.clone(),
                 api_key,
+            })
+        }
+        "openai" | "openai-compatible" => {
+            let api_key = get_nonempty_secret(SecretKind::OpenAiApiKey)?
+                .ok_or_else(|| "OpenAI API key is missing".to_string())?;
+
+            Ok(TransformProvider::OpenAiCompatible {
+                base_url: "https://api.openai.com/v1".to_string(),
+                model: settings.transform_model.clone(),
+                api_key: Some(api_key),
             })
         }
         _ => Ok(TransformProvider::None),

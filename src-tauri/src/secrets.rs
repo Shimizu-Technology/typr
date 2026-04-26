@@ -4,14 +4,14 @@ const SERVICE_NAME: &str = "com.typr.app";
 
 #[derive(Clone, Copy)]
 pub enum SecretKind {
-    GroqApiKey,
+    OpenAiApiKey,
     TransformApiKey,
 }
 
 #[derive(Clone, serde::Serialize)]
 pub struct SecretStatus {
-    #[serde(rename = "hasGroqApiKey")]
-    pub has_groq_api_key: bool,
+    #[serde(rename = "hasOpenAiApiKey")]
+    pub has_openai_api_key: bool,
     #[serde(rename = "hasTransformApiKey")]
     pub has_transform_api_key: bool,
 }
@@ -50,14 +50,14 @@ pub fn delete_secret(kind: SecretKind) -> Result<(), String> {
 
 pub fn get_secret_status() -> Result<SecretStatus, String> {
     Ok(SecretStatus {
-        has_groq_api_key: get_nonempty_secret(SecretKind::GroqApiKey)?.is_some(),
+        has_openai_api_key: get_nonempty_secret(SecretKind::OpenAiApiKey)?.is_some(),
         has_transform_api_key: get_nonempty_secret(SecretKind::TransformApiKey)?.is_some(),
     })
 }
 
 pub fn parse_secret_kind(kind: &str) -> Result<SecretKind, String> {
     match kind {
-        "groq" => Ok(SecretKind::GroqApiKey),
+        "openai" | "groq" => Ok(SecretKind::OpenAiApiKey),
         "transform" => Ok(SecretKind::TransformApiKey),
         other => Err(format!("Unknown secret kind: {}", other)),
     }
@@ -75,7 +75,7 @@ fn format_keyring_error(action: &str, err: keyring::Error) -> String {
 impl SecretKind {
     fn user_name(self) -> &'static str {
         match self {
-            SecretKind::GroqApiKey => "groq_api_key",
+            SecretKind::OpenAiApiKey => "openai_api_key",
             SecretKind::TransformApiKey => "transform_api_key",
         }
     }

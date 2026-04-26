@@ -96,13 +96,14 @@ Typr should have three product layers.
 - `providers/asr`
   - `AsrProvider` trait
   - local whisper implementation
-  - optional cloud implementations
+  - OpenAI implementation
+  - other optional cloud implementations later
 
 - `providers/transform`
   - `TransformProvider` trait
   - LM Studio implementation
   - OpenAI API-key implementation
-  - other OpenAI-compatible providers later
+  - other providers later if we actually need them
 
 - `modes`
   - raw
@@ -158,7 +159,7 @@ This gives:
 Optional remote stack:
 
 - OpenAI API key
-- other compatible APIs later
+- other compatible APIs later only if they solve a real need
 
 Important note:
 
@@ -219,18 +220,18 @@ Phase 1 should produce the first version that is actually worth using every day.
 - Filename / workspace-aware coding helpers
 - Export/import configuration bundles
 
-## Immediate Engineering Corrections
+## Phase 1 Outcome
 
-Before large new features, the current prototype needs these fixes:
+Phase 1 delivered the baseline local-first version:
 
-1. Reset recorder state on all failure paths.
-2. Remove destructive whitespace and punctuation cleanup.
-3. Replace hard-coded engine branching with provider interfaces.
-4. Remove hard-coded English-only assumptions.
-5. Move API keys out of plain JSON config.
-6. Improve local model installation checks and download integrity.
-7. Add real hotkey rebinding.
-8. Improve sample format support and audio robustness.
+1. Recorder state now resets safely on failure paths.
+2. Text cleanup preserves formatting instead of flattening it.
+3. Provider abstractions exist for ASR and rewrite flows.
+4. Secrets moved out of plain JSON into OS keychain storage.
+5. Hotkey rebinding is supported.
+6. History is local, atomic, and reprocessable.
+7. Setup/readiness feedback is surfaced in-app.
+8. The product direction is now Local Whisper + OpenAI + LM Studio rewrite.
 
 ## Working Definition Of Success
 

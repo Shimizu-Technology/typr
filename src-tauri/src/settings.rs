@@ -22,6 +22,10 @@ fn default_transform_model() -> String {
     "openai/gpt-oss-20b".to_string()
 }
 
+fn default_openai_transcription_model() -> String {
+    "gpt-4o-mini-transcribe".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct Settings {
@@ -29,6 +33,11 @@ pub struct Settings {
     pub engine: String,
     #[serde(rename = "whisperModel")]
     pub whisper_model: String,
+    #[serde(
+        rename = "openaiTranscriptionModel",
+        default = "default_openai_transcription_model"
+    )]
+    pub openai_transcription_model: String,
     #[serde(rename = "recordingMode")]
     pub recording_mode: String,
     pub hotkey: String,
@@ -50,6 +59,7 @@ impl Default for Settings {
             microphone: "default".to_string(),
             engine: "local".to_string(),
             whisper_model: "small".to_string(),
+            openai_transcription_model: default_openai_transcription_model(),
             recording_mode: "toggle".to_string(),
             hotkey: "CmdOrCtrl+Shift+Space".to_string(),
             language: default_language(),
@@ -68,10 +78,12 @@ impl Settings {
 
     pub fn load(app_dir: &PathBuf) -> Self {
         let path = Self::config_path(app_dir);
-        match fs::read_to_string(&path) {
+        let mut settings = match fs::read_to_string(&path) {
             Ok(contents) => serde_json::from_str(&contents).unwrap_or_default(),
             Err(_) => Self::default(),
-        }
+        };
+        settings.normalize();
+        settings
     }
 
     pub fn save(&self, app_dir: &PathBuf) -> Result<(), String> {
@@ -112,6 +124,28 @@ impl Settings {
 
         Ok(())
     }
+
+    fn normalize(&mut self) {
+        if self.microphone.trim().is_empty() {
+            self.microphone = "default".to_string();
+        }
+
+        if matches!(self.engine.as_str(), "cloud" | "groq") {
+            self.engine = "openai".to_string();
+        }
+
+        if self.openai_transcription_model.trim().is_empty() {
+            self.openai_transcription_model = default_openai_transcription_model();
+        }
+
+        if self.transform_provider == "openai-compatible" {
+            self.transform_provider = "openai".to_string();
+        }
+
+        if self.transform_provider == "openai" && self.transform_base_url.trim().is_empty() {
+            self.transform_base_url = "https://api.openai.com/v1".to_string();
+        }
+    }
 }
 
 #[cfg(test)]
@@ -125,6 +159,10 @@ mod tests {
         assert_eq!(settings.microphone, "default");
         assert_eq!(settings.engine, "local");
         assert_eq!(settings.whisper_model, "small");
+        assert_eq!(
+            settings.openai_transcription_model,
+            "gpt-4o-mini-transcribe"
+        );
         assert_eq!(settings.recording_mode, "toggle");
         assert_eq!(settings.hotkey, "CmdOrCtrl+Shift+Space");
         assert_eq!(settings.language, "auto");
@@ -141,18 +179,21 @@ mod tests {
 
         let mut settings = Settings::default();
         settings.engine = "cloud".to_string();
+        settings.openai_transcription_model = "gpt-4o-transcribe".to_string();
         settings.language = "es".to_string();
         settings.text_mode = "polished".to_string();
-        settings.transform_provider = "lmstudio".to_string();
+        settings.transform_provider = "openai".to_string();
+        settings.transform_base_url = "https://api.openai.com/v1".to_string();
         settings.transform_model = "qwen/qwen3-14b".to_string();
 
         settings.save(&dir).unwrap();
         let loaded = Settings::load(&dir);
 
-        assert_eq!(loaded.engine, "cloud");
+        assert_eq!(loaded.engine, "openai");
+        assert_eq!(loaded.openai_transcription_model, "gpt-4o-transcribe");
         assert_eq!(loaded.language, "es");
         assert_eq!(loaded.text_mode, "polished");
-        assert_eq!(loaded.transform_provider, "lmstudio");
+        assert_eq!(loaded.transform_provider, "openai");
         assert_eq!(loaded.transform_model, "qwen/qwen3-14b");
 
         let _ = fs::remove_dir_all(&dir);
@@ -201,6 +242,7 @@ mod tests {
         assert_eq!(settings.language, "auto");
         assert_eq!(settings.text_mode, "raw");
         assert_eq!(settings.transform_provider, "none");
+        assert_eq!(settings.openai_transcription_model, "gpt-4o-mini-transcribe");
 
         let _ = fs::remove_dir_all(&dir);
     }

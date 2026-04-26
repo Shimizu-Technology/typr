@@ -8,8 +8,8 @@ pub mod paste;
 pub mod recorder;
 pub mod secrets;
 pub mod settings;
-pub mod transcribe_groq;
 pub mod transcribe_local;
+pub mod transcribe_openai;
 pub mod transform;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

@@ -66,14 +66,14 @@ Typr should support both local and remote providers behind stable interfaces.
 ### ASR providers
 
 - Local Whisper backend
+- OpenAI API-backed transcription as the optional remote path
 - Better local backend later, if we outgrow current choices
-- Optional remote providers for users who want them
 
 ### LLM transform providers
 
-- LM Studio via OpenAI-compatible endpoint
+- LM Studio for local rewrite mode
+- OpenAI API for remote rewrite mode
 - Ollama or other local server later
-- OpenAI API key for remote usage
 
 Important: we should not assume a personal ChatGPT or Codex subscription can be reused as a generic third-party app backend. For Typr, we should design around:
 
@@ -130,15 +130,25 @@ These are intentionally out of scope unless our needs change:
 
 ## Current Repo Status
 
-The current codebase is still an early prototype. Before expanding features, we should stabilize the core:
+Phase 1 is complete and merged.
 
-- fix recorder state recovery on all failures
-- replace destructive text cleanup
-- add a real provider abstraction
-- support multiple input sample formats
-- secure API keys properly
-- improve local model install validation
-- add real hotkey rebinding
+Today the app supports:
+
+- local Whisper transcription
+- optional OpenAI transcription
+- LM Studio or OpenAI rewrite providers
+- raw, polished, and command modes
+- secure secret storage in OS keychain
+- history and reprocess
+- hotkey rebinding
+- setup and readiness diagnostics
+
+The next meaningful work is Phase 2:
+
+- custom modes and prompts
+- per-app behavior rules
+- better context capture
+- translation, files, and meetings
 
 ## Docs
 

@@ -105,11 +105,19 @@ fn emit_error_feedback(app: &tauri::AppHandle, detail: &str) {
             "Rewrite provider failed",
             "Typr could not reach the rewrite model. Confirm the provider, base URL, model name, and API key if required.".to_string(),
         )
-    } else if detail.contains("Groq API key not set") || detail.contains("Groq API key is missing")
+    } else if detail.contains("OpenAI API key not set")
+        || detail.contains("OpenAI API key is missing")
     {
         (
             "Cloud transcription is not configured",
-            "Store your Groq API key securely before using Groq Cloud transcription.".to_string(),
+            "Store your OpenAI API key securely before using OpenAI transcription."
+                .to_string(),
+        )
+    } else if detail.contains("OpenAI transcription model is missing") {
+        (
+            "OpenAI transcription model is missing",
+            "Choose a supported OpenAI transcription model before using remote transcription."
+                .to_string(),
         )
     } else if detail.contains("Whisper model not found") {
         (
@@ -384,14 +392,22 @@ fn get_readiness_status(state: State<AppState>) -> Result<ReadinessStatus, Strin
                 });
             }
         }
-        "cloud" | "groq" => {
-            if !secret_status.has_groq_api_key {
+        "openai" | "cloud" | "groq" => {
+            if !secret_status.has_openai_api_key {
                 issues.push(ReadinessIssue {
                     level: "error".to_string(),
-                    title: "Groq API key is missing".to_string(),
+                    title: "OpenAI API key is missing".to_string(),
                     detail:
-                        "Store a Groq API key in secure storage before using cloud transcription."
+                        "Store an OpenAI API key in secure storage before using remote transcription."
                             .to_string(),
+                });
+            }
+
+            if settings.openai_transcription_model.trim().is_empty() {
+                issues.push(ReadinessIssue {
+                    level: "error".to_string(),
+                    title: "OpenAI transcription model is missing".to_string(),
+                    detail: "Select a supported OpenAI transcription model before using remote transcription.".to_string(),
                 });
             }
         }
@@ -418,12 +434,14 @@ fn get_readiness_status(state: State<AppState>) -> Result<ReadinessStatus, Strin
                     }
                 ),
             }),
-            "lmstudio" | "openai-compatible" => {
-                if settings.transform_base_url.trim().is_empty() {
+            "lmstudio" | "openai" | "openai-compatible" => {
+                if settings.transform_provider == "lmstudio"
+                    && settings.transform_base_url.trim().is_empty()
+                {
                     issues.push(ReadinessIssue {
                         level: "error".to_string(),
                         title: "Rewrite provider base URL is missing".to_string(),
-                        detail: "Set a valid LM Studio or OpenAI-compatible base URL.".to_string(),
+                        detail: "Set a valid LM Studio base URL.".to_string(),
                     });
                 }
 
@@ -436,13 +454,13 @@ fn get_readiness_status(state: State<AppState>) -> Result<ReadinessStatus, Strin
                     });
                 }
 
-                if settings.transform_provider == "openai-compatible"
-                    && !secret_status.has_transform_api_key
+                if settings.transform_provider == "openai"
+                    && !secret_status.has_openai_api_key
                 {
                     issues.push(ReadinessIssue {
-                        level: "warning".to_string(),
-                        title: "No rewrite API key stored".to_string(),
-                        detail: "This is fine for local servers that do not require auth, but most remote OpenAI-compatible APIs will need a key.".to_string(),
+                        level: "error".to_string(),
+                        title: "OpenAI rewrite API key is missing".to_string(),
+                        detail: "Store an OpenAI API key before using OpenAI for polished or command mode.".to_string(),
                     });
                 }
             }

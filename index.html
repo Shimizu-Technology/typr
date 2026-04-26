@@ -153,12 +153,12 @@
             <div class="setting-row">
               <div class="setting-label">
                 <span class="label-text">Transcription Engine</span>
-                <span class="label-hint">Local runs on-device, Cloud requires an API key</span>
+                <span class="label-hint">Local runs on-device, OpenAI uses your API key</span>
               </div>
               <div class="setting-control">
                 <div class="toggle-group">
                   <button id="engine-local" class="toggle-btn active">Local Whisper</button>
-                  <button id="engine-cloud" class="toggle-btn">Groq Cloud</button>
+                  <button id="engine-openai" class="toggle-btn">OpenAI</button>
                 </div>
               </div>
             </div>
@@ -180,19 +180,34 @@
             <div id="download-progress" class="hidden">
               <div id="progress-bar"><div id="progress-fill"></div></div>
             </div>
-            <div class="setting-row hidden" id="cloud-settings">
+            <div class="setting-row hidden" id="openai-settings">
               <div class="setting-label">
-                <span class="label-text">Groq API Key</span>
-                <span class="label-hint">Get your key from console.groq.com</span>
+                <span class="label-text">OpenAI API Key</span>
+                <span class="label-hint">Used for remote transcription</span>
               </div>
               <div class="setting-control">
                 <div class="secret-control">
-                  <input type="password" id="groq-key" placeholder="Paste a key and click Store" />
+                  <input type="password" id="openai-key" placeholder="Paste a key and click Store" />
                   <div class="secret-actions">
-                    <button id="groq-store-btn" class="btn-secondary">Store</button>
-                    <button id="groq-clear-btn" class="btn-secondary">Clear</button>
+                    <button id="openai-store-btn" class="btn-secondary">Store</button>
+                    <button id="openai-clear-btn" class="btn-secondary">Clear</button>
                   </div>
-                  <span id="groq-secret-status" class="secret-status">Not stored</span>
+                  <span id="openai-secret-status" class="secret-status">Not stored</span>
+                </div>
+              </div>
+            </div>
+            <div class="setting-row hidden" id="openai-model-row">
+              <div class="setting-label">
+                <span class="label-text">OpenAI Transcription Model</span>
+                <span class="label-hint">Choose the remote speech-to-text model</span>
+              </div>
+              <div class="setting-control">
+                <div class="model-row">
+                  <select id="openai-transcription-model-select">
+                    <option value="gpt-4o-mini-transcribe">gpt-4o-mini-transcribe</option>
+                    <option value="gpt-4o-transcribe">gpt-4o-transcribe</option>
+                    <option value="whisper-1">whisper-1</option>
+                  </select>
                 </div>
               </div>
             </div>
@@ -205,12 +220,12 @@
                 <select id="transform-provider-select">
                   <option value="none">None</option>
                   <option value="lmstudio">LM Studio</option>
-                  <option value="openai-compatible">OpenAI-compatible API</option>
+                  <option value="openai">OpenAI API</option>
                 </select>
               </div>
             </div>
             <div id="transform-settings" class="hidden">
-              <div class="setting-row">
+              <div class="setting-row" id="transform-base-url-row">
                 <div class="setting-label">
                   <span class="label-text">Base URL</span>
                   <span class="label-hint">LM Studio default is http://localhost:1234/v1</span>
@@ -228,10 +243,10 @@
                   <input type="text" id="transform-model" placeholder="openai/gpt-oss-20b" />
                 </div>
               </div>
-              <div class="setting-row">
+              <div class="setting-row" id="transform-api-key-row">
                 <div class="setting-label">
                   <span class="label-text">API Key</span>
-                  <span class="label-hint">Optional for LM Studio, required for many remote providers</span>
+                  <span class="label-hint">Optional for LM Studio instances that require auth</span>
                 </div>
                 <div class="setting-control">
                   <div class="secret-control">

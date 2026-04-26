@@ -81,14 +81,16 @@ impl AudioRecorder {
 
         let host = cpal::default_host();
 
-        let device = if mic_name == "default" {
+        let normalized_mic_name = mic_name.trim();
+
+        let device = if normalized_mic_name.is_empty() || normalized_mic_name == "default" {
             host.default_input_device()
                 .ok_or("No default input device found")?
         } else {
             host.input_devices()
                 .map_err(|e| e.to_string())?
-                .find(|d| d.name().map(|n| n == mic_name).unwrap_or(false))
-                .ok_or(format!("Microphone '{}' not found", mic_name))?
+                .find(|d| d.name().map(|n| n == normalized_mic_name).unwrap_or(false))
+                .ok_or(format!("Microphone '{}' not found", normalized_mic_name))?
         };
 
         let default_config = device

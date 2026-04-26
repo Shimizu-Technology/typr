@@ -6,6 +6,7 @@ interface Settings {
   microphone: string;
   engine: string;
   whisperModel: string;
+  openaiTranscriptionModel: string;
   recordingMode: string;
   hotkey: string;
   language: string;
@@ -21,7 +22,7 @@ interface MicDevice {
 }
 
 interface SecretStatus {
-  hasGroqApiKey: boolean;
+  hasOpenAiApiKey: boolean;
   hasTransformApiKey: boolean;
 }
 
@@ -100,17 +101,25 @@ const historyClearBtn = document.getElementById(
 ) as HTMLButtonElement;
 const micSelect = document.getElementById("mic-select") as HTMLSelectElement;
 const engineLocal = document.getElementById("engine-local")!;
-const engineCloud = document.getElementById("engine-cloud")!;
+const engineOpenAi = document.getElementById("engine-openai")!;
 const localSettings = document.getElementById("local-settings")!;
-const cloudSettings = document.getElementById("cloud-settings")!;
+const openAiSettings = document.getElementById("openai-settings")!;
 const modelSelect = document.getElementById("model-select") as HTMLSelectElement;
+const openAiModelRow = document.getElementById("openai-model-row")!;
+const openAiTranscriptionModelSelect = document.getElementById(
+  "openai-transcription-model-select",
+) as HTMLSelectElement;
 const downloadBtn = document.getElementById("download-btn")!;
 const downloadProgress = document.getElementById("download-progress")!;
 const progressFill = document.getElementById("progress-fill")!;
-const groqKey = document.getElementById("groq-key") as HTMLInputElement;
-const groqStoreBtn = document.getElementById("groq-store-btn") as HTMLButtonElement;
-const groqClearBtn = document.getElementById("groq-clear-btn") as HTMLButtonElement;
-const groqSecretStatus = document.getElementById("groq-secret-status")!;
+const openAiKey = document.getElementById("openai-key") as HTMLInputElement;
+const openAiStoreBtn = document.getElementById(
+  "openai-store-btn",
+) as HTMLButtonElement;
+const openAiClearBtn = document.getElementById(
+  "openai-clear-btn",
+) as HTMLButtonElement;
+const openAiSecretStatus = document.getElementById("openai-secret-status")!;
 const modeToggle = document.getElementById("mode-toggle")!;
 const modePtt = document.getElementById("mode-ptt")!;
 const hotkeyText = document.getElementById("hotkey-text")!;
@@ -126,6 +135,8 @@ const transformProviderSelect = document.getElementById(
   "transform-provider-select",
 ) as HTMLSelectElement;
 const transformSettings = document.getElementById("transform-settings")!;
+const transformBaseUrlRow = document.getElementById("transform-base-url-row")!;
+const transformApiKeyRow = document.getElementById("transform-api-key-row")!;
 const transformBaseUrl = document.getElementById(
   "transform-base-url",
 ) as HTMLInputElement;
@@ -261,22 +272,16 @@ async function loadSettings() {
   try {
     currentSettings = await invoke<Settings>("get_settings");
 
-    // Populate mic dropdown
     const mics = await invoke<MicDevice[]>("list_microphones");
-    micSelect.innerHTML = "";
-    mics.forEach((mic) => {
-      const option = document.createElement("option");
-      option.value = mic.name;
-      option.textContent = mic.name + (mic.is_default ? " (default)" : "");
-      micSelect.appendChild(option);
-    });
-    micSelect.value = currentSettings.microphone;
+    populateMicrophoneOptions(mics, currentSettings.microphone);
 
     // Engine
     setEngine(currentSettings.engine);
 
     // Model
     modelSelect.value = currentSettings.whisperModel;
+    openAiTranscriptionModelSelect.value =
+      currentSettings.openaiTranscriptionModel;
     await checkModelStatus();
 
     // Recording mode
@@ -307,12 +312,39 @@ async function loadSettings() {
   }
 }
 
+function populateMicrophoneOptions(mics: MicDevice[], selectedMic: string) {
+  micSelect.innerHTML = "";
+
+  const defaultOption = document.createElement("option");
+  defaultOption.value = "default";
+  defaultOption.textContent = "System Default";
+  micSelect.appendChild(defaultOption);
+
+  mics.forEach((mic) => {
+    const option = document.createElement("option");
+    option.value = mic.name;
+    option.textContent = mic.name + (mic.is_default ? " (default)" : "");
+    micSelect.appendChild(option);
+  });
+
+  const normalizedSelection =
+    selectedMic.trim().length > 0 ? selectedMic : "default";
+  const hasMatchingOption = Array.from(micSelect.options).some(
+    (option) => option.value === normalizedSelection,
+  );
+
+  micSelect.value = hasMatchingOption ? normalizedSelection : "default";
+}
+
 function setEngine(engine: string) {
-  currentSettings.engine = engine;
-  engineLocal.classList.toggle("active", engine === "local");
-  engineCloud.classList.toggle("active", engine === "cloud");
-  localSettings.classList.toggle("hidden", engine !== "local");
-  cloudSettings.classList.toggle("hidden", engine !== "cloud");
+  const normalizedEngine =
+    engine === "cloud" || engine === "groq" ? "openai" : engine;
+  currentSettings.engine = normalizedEngine;
+  engineLocal.classList.toggle("active", normalizedEngine === "local");
+  engineOpenAi.classList.toggle("active", normalizedEngine === "openai");
+  localSettings.classList.toggle("hidden", normalizedEngine !== "local");
+  openAiSettings.classList.toggle("hidden", normalizedEngine !== "openai");
+  openAiModelRow.classList.toggle("hidden", normalizedEngine !== "openai");
 }
 
 function setRecordingMode(mode: string) {
@@ -335,6 +367,23 @@ function updateTransformVisibility() {
       currentSettings.textMode === "command") &&
     currentSettings.transformProvider !== "none";
   transformSettings.classList.toggle("hidden", !showTransformSettings);
+  transformBaseUrlRow.classList.toggle(
+    "hidden",
+    currentSettings.transformProvider !== "lmstudio",
+  );
+  transformApiKeyRow.classList.toggle(
+    "hidden",
+    currentSettings.transformProvider !== "lmstudio",
+  );
+
+  if (currentSettings.transformProvider === "openai") {
+    transformBaseUrl.value = "https://api.openai.com/v1";
+  } else if (
+    currentSettings.transformProvider === "lmstudio" &&
+    !transformBaseUrl.value.trim()
+  ) {
+    transformBaseUrl.value = "http://localhost:1234/v1";
+  }
 }
 
 async function checkModelStatus() {
@@ -348,10 +397,10 @@ async function checkModelStatus() {
 async function refreshSecretStatus() {
   const status = await invoke<SecretStatus>("get_secret_status");
 
-  groqSecretStatus.textContent = status.hasGroqApiKey
+  openAiSecretStatus.textContent = status.hasOpenAiApiKey
     ? "Stored securely in OS keychain"
     : "Not stored";
-  groqClearBtn.disabled = !status.hasGroqApiKey;
+  openAiClearBtn.disabled = !status.hasOpenAiApiKey;
 
   transformSecretStatus.textContent = status.hasTransformApiKey
     ? "Stored securely in OS keychain"
@@ -419,12 +468,17 @@ async function refreshSetupStatus() {
 async function saveSettings() {
   const nextSettings: Settings = {
     ...currentSettings,
-    microphone: micSelect.value,
+    microphone: micSelect.value || "default",
+    engine: currentSettings.engine,
     whisperModel: modelSelect.value,
+    openaiTranscriptionModel: openAiTranscriptionModelSelect.value,
     language: languageSelect.value,
     transformProvider: transformProviderSelect.value,
-    transformBaseUrl: transformBaseUrl.value,
-    transformModel: transformModel.value,
+    transformBaseUrl:
+      transformProviderSelect.value === "openai"
+        ? "https://api.openai.com/v1"
+        : transformBaseUrl.value.trim() || "http://localhost:1234/v1",
+    transformModel: transformModel.value.trim(),
   };
 
   await invoke("save_settings", { settings: nextSettings });
@@ -432,7 +486,7 @@ async function saveSettings() {
   await refreshReadinessStatus();
 }
 
-async function storeSecret(kind: "groq" | "transform", input: HTMLInputElement) {
+async function storeSecret(kind: "openai" | "transform", input: HTMLInputElement) {
   const value = input.value.trim();
   if (!value) return;
 
@@ -455,7 +509,7 @@ async function storeSecret(kind: "groq" | "transform", input: HTMLInputElement) 
   }
 }
 
-async function clearSecret(kind: "groq" | "transform", input: HTMLInputElement) {
+async function clearSecret(kind: "openai" | "transform", input: HTMLInputElement) {
   try {
     await invoke("clear_provider_secret", { kind });
     input.value = "";
@@ -670,8 +724,8 @@ engineLocal.addEventListener("click", () => {
   runAsyncAction(saveSettings, "Could not save settings");
 });
 
-engineCloud.addEventListener("click", () => {
-  setEngine("cloud");
+engineOpenAi.addEventListener("click", () => {
+  setEngine("openai");
   runAsyncAction(saveSettings, "Could not save settings");
 });
 
@@ -687,6 +741,10 @@ modelSelect.addEventListener("change", async () => {
     await checkModelStatus();
     await saveSettings();
   }, "Could not update model settings");
+});
+
+openAiTranscriptionModelSelect.addEventListener("change", () => {
+  runAsyncAction(saveSettings, "Could not update OpenAI transcription settings");
 });
 
 downloadBtn.addEventListener("click", async () => {
@@ -715,8 +773,8 @@ downloadBtn.addEventListener("click", async () => {
   downloadProgress.classList.add("hidden");
 });
 
-groqStoreBtn.addEventListener("click", () => storeSecret("groq", groqKey));
-groqClearBtn.addEventListener("click", () => clearSecret("groq", groqKey));
+openAiStoreBtn.addEventListener("click", () => storeSecret("openai", openAiKey));
+openAiClearBtn.addEventListener("click", () => clearSecret("openai", openAiKey));
 
 modeToggle.addEventListener("click", () => {
   setRecordingMode("toggle");

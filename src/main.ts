@@ -197,6 +197,20 @@ function toErrorDetail(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function runAsyncAction(
+  action: () => Promise<void>,
+  failureTitle: string,
+  failureDetail?: string,
+) {
+  void action().catch((error) => {
+    showFeedback({
+      level: "error",
+      title: failureTitle,
+      detail: failureDetail ?? toErrorDetail(error),
+    });
+  });
+}
+
 function buildStatusItem(
   title: string,
   detail: string,
@@ -621,20 +635,26 @@ async function applyHotkey(hotkey: string) {
 // Event listeners
 engineLocal.addEventListener("click", () => {
   setEngine("local");
-  saveSettings();
+  runAsyncAction(saveSettings, "Could not save settings");
 });
 
 engineCloud.addEventListener("click", () => {
   setEngine("cloud");
-  saveSettings();
+  runAsyncAction(saveSettings, "Could not save settings");
 });
 
-micSelect.addEventListener("change", () => saveSettings());
-languageSelect.addEventListener("change", () => saveSettings());
+micSelect.addEventListener("change", () => {
+  runAsyncAction(saveSettings, "Could not save settings");
+});
+languageSelect.addEventListener("change", () => {
+  runAsyncAction(saveSettings, "Could not save settings");
+});
 
 modelSelect.addEventListener("change", async () => {
-  await checkModelStatus();
-  saveSettings();
+  runAsyncAction(async () => {
+    await checkModelStatus();
+    await saveSettings();
+  }, "Could not update model settings");
 });
 
 downloadBtn.addEventListener("click", async () => {
@@ -668,45 +688,53 @@ groqClearBtn.addEventListener("click", () => clearSecret("groq", groqKey));
 
 modeToggle.addEventListener("click", () => {
   setRecordingMode("toggle");
-  saveSettings();
+  runAsyncAction(saveSettings, "Could not save settings");
 });
 
 modePtt.addEventListener("click", () => {
   setRecordingMode("push-to-talk");
-  saveSettings();
+  runAsyncAction(saveSettings, "Could not save settings");
 });
 
 textModeRaw.addEventListener("click", () => {
   setTextMode("raw");
-  saveSettings();
+  runAsyncAction(saveSettings, "Could not save settings");
 });
 
 textModePolished.addEventListener("click", () => {
   setTextMode("polished");
-  saveSettings();
+  runAsyncAction(saveSettings, "Could not save settings");
 });
 
 textModeCommand.addEventListener("click", () => {
   setTextMode("command");
-  saveSettings();
+  runAsyncAction(saveSettings, "Could not save settings");
 });
 
 transformProviderSelect.addEventListener("change", () => {
   currentSettings.transformProvider = transformProviderSelect.value;
   updateTransformVisibility();
-  saveSettings();
+  runAsyncAction(saveSettings, "Could not save settings");
 });
 
-transformBaseUrl.addEventListener("change", () => saveSettings());
-transformModel.addEventListener("change", () => saveSettings());
+transformBaseUrl.addEventListener("change", () => {
+  runAsyncAction(saveSettings, "Could not save settings");
+});
+transformModel.addEventListener("change", () => {
+  runAsyncAction(saveSettings, "Could not save settings");
+});
 transformStoreBtn.addEventListener("click", () =>
   storeSecret("transform", transformApiKey),
 );
 transformClearBtn.addEventListener("click", () =>
   clearSecret("transform", transformApiKey),
 );
-readinessRefreshBtn.addEventListener("click", () => refreshReadinessStatus());
-setupRefreshBtn.addEventListener("click", () => refreshSetupStatus());
+readinessRefreshBtn.addEventListener("click", () => {
+  runAsyncAction(refreshReadinessStatus, "Could not refresh readiness status");
+});
+setupRefreshBtn.addEventListener("click", () => {
+  runAsyncAction(refreshSetupStatus, "Could not refresh setup status");
+});
 historyClearBtn.addEventListener("click", async () => {
   try {
     await invoke("clear_history_entries");
@@ -824,14 +852,14 @@ listen<string>("recording-state", (event) => {
   } else {
     statusDot.classList.add("ready");
     statusText.textContent = "Ready";
-    void loadHistoryEntries();
+    runAsyncAction(loadHistoryEntries, "Could not refresh history");
   }
 });
 
 listen<AppFeedback>("app-feedback", (event) => {
   showFeedback(event.payload);
-  void refreshReadinessStatus();
-  void refreshSetupStatus();
+  runAsyncAction(refreshReadinessStatus, "Could not refresh readiness status");
+  runAsyncAction(refreshSetupStatus, "Could not refresh setup status");
 });
 
 // Listen for download progress

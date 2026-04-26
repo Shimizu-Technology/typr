@@ -260,6 +260,78 @@ body {
   font-weight: 400;
 }
 
+.readiness-card {
+  margin-bottom: 28px;
+  padding: 16px;
+  background: linear-gradient(180deg, rgba(94, 106, 210, 0.08), rgba(19, 19, 22, 0.96));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.readiness-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.readiness-summary {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  margin-bottom: 12px;
+}
+
+.readiness-summary.ready {
+  color: #b7f7ca;
+}
+
+.readiness-summary.blocked {
+  color: #ffd7b3;
+}
+
+.readiness-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.readiness-item {
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.readiness-item-ok {
+  border-color: rgba(62, 207, 110, 0.2);
+  background: rgba(62, 207, 110, 0.08);
+}
+
+.readiness-item-error {
+  border-color: rgba(229, 72, 77, 0.25);
+  background: rgba(229, 72, 77, 0.08);
+}
+
+.readiness-item-warning {
+  border-color: rgba(245, 166, 35, 0.25);
+  background: rgba(245, 166, 35, 0.08);
+}
+
+.readiness-item-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+
+.readiness-item-detail {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
 /* ── Settings List ──────────────────────────────────── */
 
 .settings-list {
@@ -282,6 +354,11 @@ body {
 
 .setting-row:last-child {
   border-bottom: none;
+}
+
+.setting-row-compact {
+  padding-top: 12px;
+  padding-bottom: 0;
 }
 
 .setting-label {
@@ -466,6 +543,20 @@ input[type="password"]::placeholder {
   color: var(--text-secondary);
 }
 
+.hotkey-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.inline-hint {
+  display: inline-block;
+  max-width: 280px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-align: right;
+}
+
 /* ── Progress Bar ───────────────────────────────────── */
 
 #download-progress {
@@ -501,6 +592,12 @@ kbd {
   font-size: 12px;
   color: var(--text-secondary);
   letter-spacing: 0.02em;
+}
+
+kbd.capturing {
+  border-color: var(--accent);
+  color: var(--text);
+  box-shadow: 0 0 0 2px var(--accent-subtle);
 }
 
 /* ── Utility ────────────────────────────────────────── */

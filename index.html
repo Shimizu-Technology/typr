@@ -60,6 +60,17 @@
             <h2 class="section-title">General</h2>
             <p class="section-desc">Configure your audio input and transcription defaults</p>
           </div>
+          <div class="readiness-card">
+            <div class="readiness-card-header">
+              <div>
+                <div class="label-text">Readiness</div>
+                <div class="label-hint">Quick checks for your current engine, hotkey, and rewrite mode</div>
+              </div>
+              <button id="readiness-refresh-btn" class="btn-secondary">Refresh</button>
+            </div>
+            <p id="readiness-summary" class="readiness-summary">Checking current setup…</p>
+            <div id="readiness-list" class="readiness-list"></div>
+          </div>
           <div class="settings-list">
             <div class="setting-row">
               <div class="setting-label">
@@ -160,7 +171,7 @@
             <div class="setting-row" id="transform-provider-row">
               <div class="setting-label">
                 <span class="label-text">Rewrite Provider</span>
-                <span class="label-hint">Used only in Polished mode</span>
+                <span class="label-hint">Used in Polished and Command modes</span>
               </div>
               <div class="setting-control">
                 <select id="transform-provider-select">
@@ -233,7 +244,19 @@
                 <span class="label-hint">Global keyboard shortcut to trigger recording</span>
               </div>
               <div class="setting-control">
-                <kbd id="hotkey-text">Cmd+Shift+D</kbd>
+                <div class="hotkey-control">
+                  <kbd id="hotkey-text">Cmd+Shift+D</kbd>
+                  <button id="hotkey-rebind-btn" class="btn-secondary">Change</button>
+                </div>
+              </div>
+            </div>
+            <div class="setting-row setting-row-compact">
+              <div class="setting-label">
+                <span class="label-text">Hotkey Help</span>
+                <span class="label-hint">Escape cancels capture if you change your mind</span>
+              </div>
+              <div class="setting-control">
+                <span id="hotkey-hint-text" class="inline-hint">Global keyboard shortcut to trigger recording</span>
               </div>
             </div>
           </div>

@@ -25,6 +25,18 @@ interface SecretStatus {
   hasTransformApiKey: boolean;
 }
 
+interface ReadinessIssue {
+  level: "error" | "warning";
+  title: string;
+  detail: string;
+}
+
+interface ReadinessStatus {
+  canRecord: boolean;
+  summary: string;
+  issues: ReadinessIssue[];
+}
+
 interface DownloadProgress {
   downloaded: number;
   total: number;
@@ -34,6 +46,11 @@ interface DownloadProgress {
 // DOM elements
 const statusDot = document.getElementById("status-dot")!;
 const statusText = document.getElementById("status-text")!;
+const readinessSummary = document.getElementById("readiness-summary")!;
+const readinessList = document.getElementById("readiness-list")!;
+const readinessRefreshBtn = document.getElementById(
+  "readiness-refresh-btn",
+) as HTMLButtonElement;
 const micSelect = document.getElementById("mic-select") as HTMLSelectElement;
 const engineLocal = document.getElementById("engine-local")!;
 const engineCloud = document.getElementById("engine-cloud")!;
@@ -50,6 +67,10 @@ const groqSecretStatus = document.getElementById("groq-secret-status")!;
 const modeToggle = document.getElementById("mode-toggle")!;
 const modePtt = document.getElementById("mode-ptt")!;
 const hotkeyText = document.getElementById("hotkey-text")!;
+const hotkeyRebindBtn = document.getElementById(
+  "hotkey-rebind-btn",
+) as HTMLButtonElement;
+const hotkeyHintText = document.getElementById("hotkey-hint-text")!;
 const languageSelect = document.getElementById("language-select") as HTMLSelectElement;
 const textModeRaw = document.getElementById("text-mode-raw")!;
 const textModePolished = document.getElementById("text-mode-polished")!;
@@ -107,6 +128,7 @@ sidebar.addEventListener("mousedown", (e) => {
 });
 
 let currentSettings: Settings;
+let isCapturingHotkey = false;
 
 async function loadSettings() {
   currentSettings = await invoke<Settings>("get_settings");
@@ -144,10 +166,8 @@ async function loadSettings() {
   await refreshSecretStatus();
 
   // Hotkey
-  hotkeyText.textContent = currentSettings.hotkey.replace(
-    "CmdOrCtrl",
-    navigator.userAgent.includes("Mac") ? "Cmd" : "Ctrl",
-  );
+  renderHotkey(currentSettings.hotkey);
+  await refreshReadinessStatus();
 }
 
 function setEngine(engine: string) {
@@ -202,14 +222,51 @@ async function refreshSecretStatus() {
   transformClearBtn.disabled = !status.hasTransformApiKey;
 }
 
+async function refreshReadinessStatus() {
+  const readiness = await invoke<ReadinessStatus>("get_readiness_status");
+  readinessSummary.textContent = readiness.summary;
+  readinessSummary.className = readiness.canRecord
+    ? "readiness-summary ready"
+    : "readiness-summary blocked";
+
+  readinessList.innerHTML = "";
+
+  if (readiness.issues.length === 0) {
+    const item = document.createElement("div");
+    item.className = "readiness-item readiness-item-ok";
+    item.innerHTML = `
+      <div class="readiness-item-title">All core checks passed</div>
+      <div class="readiness-item-detail">Hotkey, engine, and active mode configuration look good.</div>
+    `;
+    readinessList.appendChild(item);
+    return;
+  }
+
+  readiness.issues.forEach((issue) => {
+    const item = document.createElement("div");
+    item.className = `readiness-item readiness-item-${issue.level}`;
+    item.innerHTML = `
+      <div class="readiness-item-title">${issue.title}</div>
+      <div class="readiness-item-detail">${issue.detail}</div>
+    `;
+    readinessList.appendChild(item);
+  });
+}
+
 async function saveSettings() {
-  currentSettings.microphone = micSelect.value;
-  currentSettings.whisperModel = modelSelect.value;
-  currentSettings.language = languageSelect.value;
-  currentSettings.transformProvider = transformProviderSelect.value;
-  currentSettings.transformBaseUrl = transformBaseUrl.value;
-  currentSettings.transformModel = transformModel.value;
-  await invoke("save_settings", { settings: currentSettings });
+  const nextSettings: Settings = {
+    ...currentSettings,
+    microphone: micSelect.value,
+    whisperModel: modelSelect.value,
+    language: languageSelect.value,
+    transformProvider: transformProviderSelect.value,
+    transformBaseUrl: transformBaseUrl.value,
+    transformModel: transformModel.value,
+  };
+
+  await invoke("save_settings", { settings: nextSettings });
+  currentSettings = nextSettings;
+  await refreshReadinessStatus();
 }
 
 async function storeSecret(kind: "groq" | "transform", input: HTMLInputElement) {
@@ -219,12 +276,90 @@ async function storeSecret(kind: "groq" | "transform", input: HTMLInputElement) 
   await invoke("set_provider_secret", { kind, value });
   input.value = "";
   await refreshSecretStatus();
+  await refreshReadinessStatus();
 }
 
 async function clearSecret(kind: "groq" | "transform", input: HTMLInputElement) {
   await invoke("clear_provider_secret", { kind });
   input.value = "";
   await refreshSecretStatus();
+  await refreshReadinessStatus();
+}
+
+function renderHotkey(hotkey: string) {
+  hotkeyText.textContent = hotkey.replace(
+    "CmdOrCtrl",
+    navigator.userAgent.includes("Mac") ? "Cmd" : "Ctrl",
+  );
+}
+
+function setHotkeyCapture(active: boolean) {
+  isCapturingHotkey = active;
+  hotkeyRebindBtn.textContent = active ? "Cancel" : "Change";
+  hotkeyText.classList.toggle("capturing", active);
+  hotkeyHintText.textContent = active
+    ? "Press the new shortcut now. Use Command/Ctrl plus another key."
+    : "Global keyboard shortcut to trigger recording";
+  if (active) {
+    hotkeyText.textContent = "Listening…";
+  } else {
+    renderHotkey(currentSettings.hotkey);
+  }
+}
+
+function mapKeyboardEventToHotkey(event: KeyboardEvent): string | null {
+  const modifiers: string[] = [];
+  if (event.metaKey || event.ctrlKey) modifiers.push("CmdOrCtrl");
+  if (event.altKey) modifiers.push("Alt");
+  if (event.shiftKey) modifiers.push("Shift");
+
+  let key: string | null = null;
+  const code = event.code;
+
+  if (/^Key[A-Z]$/.test(code)) {
+    key = code.replace("Key", "");
+  } else if (/^Digit[0-9]$/.test(code)) {
+    key = code.replace("Digit", "");
+  } else if (/^F([1-9]|1[0-2])$/.test(code)) {
+    key = code;
+  } else {
+    const keyMap: Record<string, string> = {
+      Space: "Space",
+      Enter: "Enter",
+      Tab: "Tab",
+      Escape: "Escape",
+      Backspace: "Backspace",
+      ArrowUp: "Up",
+      ArrowDown: "Down",
+      ArrowLeft: "Left",
+      ArrowRight: "Right",
+      Minus: "-",
+      Equal: "=",
+      BracketLeft: "[",
+      BracketRight: "]",
+      Backslash: "\\",
+      Semicolon: ";",
+      Quote: "'",
+      Comma: ",",
+      Period: ".",
+      Slash: "/",
+      Backquote: "`",
+    };
+    key = keyMap[code] ?? null;
+  }
+
+  if (!key || modifiers.length === 0) {
+    return null;
+  }
+
+  return [...modifiers, key].join("+");
+}
+
+async function applyHotkey(hotkey: string) {
+  const updated = await invoke<Settings>("set_hotkey", { hotkey });
+  currentSettings = updated;
+  renderHotkey(currentSettings.hotkey);
+  await refreshReadinessStatus();
 }
 
 // Event listeners
@@ -254,6 +389,7 @@ downloadBtn.addEventListener("click", async () => {
   try {
     await invoke("download_model", { modelSize: modelSelect.value });
     downloadBtn.textContent = "\u2713";
+    await refreshReadinessStatus();
   } catch (e) {
     downloadBtn.textContent = "Retry";
     (downloadBtn as HTMLButtonElement).disabled = false;
@@ -303,6 +439,45 @@ transformStoreBtn.addEventListener("click", () =>
 );
 transformClearBtn.addEventListener("click", () =>
   clearSecret("transform", transformApiKey),
+);
+readinessRefreshBtn.addEventListener("click", () => refreshReadinessStatus());
+hotkeyRebindBtn.addEventListener("click", () => {
+  setHotkeyCapture(!isCapturingHotkey);
+});
+
+window.addEventListener(
+  "keydown",
+  async (event) => {
+    if (!isCapturingHotkey) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (event.key === "Escape") {
+      setHotkeyCapture(false);
+      return;
+    }
+
+    const hotkey = mapKeyboardEventToHotkey(event);
+    if (!hotkey) {
+      hotkeyHintText.textContent =
+        "Use Command/Ctrl plus at least one non-modifier key.";
+      return;
+    }
+
+    try {
+      await applyHotkey(hotkey);
+      setHotkeyCapture(false);
+      hotkeyHintText.textContent = "Hotkey updated successfully.";
+    } catch (error) {
+      setHotkeyCapture(false);
+      hotkeyHintText.textContent =
+        error instanceof Error ? error.message : String(error);
+    }
+  },
+  true,
 );
 
 // Listen for recording state changes

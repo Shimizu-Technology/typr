@@ -12,6 +12,14 @@ use crate::paste::paste_text;
 use crate::settings::Settings;
 use crate::transform::apply_text_transform;
 
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RecorderFeedback {
+    level: String,
+    title: String,
+    detail: String,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub enum RecordingState {
     Ready,
@@ -140,7 +148,20 @@ impl Recorder {
 
         let history_entry =
             build_history_entry(settings, &cleaned, &final_text, selected_text.clone());
-        append_history_entry(app_dir, history_entry)?;
+        if let Err(err) = append_history_entry(app_dir, history_entry) {
+            let _ = app.emit(
+                "app-feedback",
+                RecorderFeedback {
+                    level: "warning".to_string(),
+                    title: "Transcript saved, but history update failed".to_string(),
+                    detail: format!(
+                        "Typr still completed this dictation, but could not update local history: {}",
+                        err
+                    ),
+                },
+            );
+            eprintln!("[Typr] History append failed: {}", err);
+        }
 
         // Auto-paste
         if !final_text.is_empty() {

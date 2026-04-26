@@ -16,15 +16,19 @@ pub fn capture_selected_text() -> Result<String, String> {
         .set_text(marker.clone())
         .map_err(|e| format!("Failed to prepare clipboard for selection capture: {}", e))?;
 
-    trigger_copy_shortcut()?;
-    thread::sleep(Duration::from_millis(120));
+    let capture_result = (|| -> Result<String, String> {
+        trigger_copy_shortcut()?;
+        thread::sleep(Duration::from_millis(120));
 
-    let clipboard_text = clipboard
-        .get_text()
-        .map_err(|e| format!("Failed to read selected text from clipboard: {}", e))?;
+        let clipboard_text = clipboard
+            .get_text()
+            .map_err(|e| format!("Failed to read selected text from clipboard: {}", e))?;
+
+        validate_selected_text(&clipboard_text, &marker)
+    })();
 
     restore_previous_clipboard_text(&mut clipboard, previous_text);
-    validate_selected_text(&clipboard_text, &marker)
+    capture_result
 }
 
 fn trigger_copy_shortcut() -> Result<(), String> {

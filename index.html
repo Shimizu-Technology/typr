@@ -146,7 +146,14 @@
                 <span class="label-hint">Get your key from console.groq.com</span>
               </div>
               <div class="setting-control">
-                <input type="password" id="groq-key" placeholder="gsk_..." />
+                <div class="secret-control">
+                  <input type="password" id="groq-key" placeholder="Paste a key and click Store" />
+                  <div class="secret-actions">
+                    <button id="groq-store-btn" class="btn-secondary">Store</button>
+                    <button id="groq-clear-btn" class="btn-secondary">Clear</button>
+                  </div>
+                  <span id="groq-secret-status" class="secret-status">Not stored</span>
+                </div>
               </div>
             </div>
             <div class="setting-row" id="transform-provider-row">
@@ -187,7 +194,14 @@
                   <span class="label-hint">Optional for LM Studio, required for many remote providers</span>
                 </div>
                 <div class="setting-control">
-                  <input type="password" id="transform-api-key" placeholder="sk-..." />
+                  <div class="secret-control">
+                    <input type="password" id="transform-api-key" placeholder="Paste a key and click Store" />
+                    <div class="secret-actions">
+                      <button id="transform-store-btn" class="btn-secondary">Store</button>
+                      <button id="transform-clear-btn" class="btn-secondary">Clear</button>
+                    </div>
+                    <span id="transform-secret-status" class="secret-status">Not stored</span>
+                  </div>
                 </div>
               </div>
             </div>

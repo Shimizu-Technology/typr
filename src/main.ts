@@ -6,7 +6,6 @@ interface Settings {
   microphone: string;
   engine: string;
   whisperModel: string;
-  groqApiKey: string;
   recordingMode: string;
   hotkey: string;
   language: string;
@@ -14,12 +13,16 @@ interface Settings {
   transformProvider: string;
   transformBaseUrl: string;
   transformModel: string;
-  transformApiKey: string;
 }
 
 interface MicDevice {
   name: string;
   is_default: boolean;
+}
+
+interface SecretStatus {
+  hasGroqApiKey: boolean;
+  hasTransformApiKey: boolean;
 }
 
 interface DownloadProgress {
@@ -41,6 +44,9 @@ const downloadBtn = document.getElementById("download-btn")!;
 const downloadProgress = document.getElementById("download-progress")!;
 const progressFill = document.getElementById("progress-fill")!;
 const groqKey = document.getElementById("groq-key") as HTMLInputElement;
+const groqStoreBtn = document.getElementById("groq-store-btn") as HTMLButtonElement;
+const groqClearBtn = document.getElementById("groq-clear-btn") as HTMLButtonElement;
+const groqSecretStatus = document.getElementById("groq-secret-status")!;
 const modeToggle = document.getElementById("mode-toggle")!;
 const modePtt = document.getElementById("mode-ptt")!;
 const hotkeyText = document.getElementById("hotkey-text")!;
@@ -60,6 +66,15 @@ const transformModel = document.getElementById(
 const transformApiKey = document.getElementById(
   "transform-api-key",
 ) as HTMLInputElement;
+const transformStoreBtn = document.getElementById(
+  "transform-store-btn",
+) as HTMLButtonElement;
+const transformClearBtn = document.getElementById(
+  "transform-clear-btn",
+) as HTMLButtonElement;
+const transformSecretStatus = document.getElementById(
+  "transform-secret-status",
+)!;
 
 // Section navigation
 const navItems = document.querySelectorAll(".nav-item");
@@ -113,9 +128,6 @@ async function loadSettings() {
   modelSelect.value = currentSettings.whisperModel;
   await checkModelStatus();
 
-  // Groq key
-  groqKey.value = currentSettings.groqApiKey;
-
   // Recording mode
   setRecordingMode(currentSettings.recordingMode);
 
@@ -127,8 +139,8 @@ async function loadSettings() {
   transformProviderSelect.value = currentSettings.transformProvider;
   transformBaseUrl.value = currentSettings.transformBaseUrl;
   transformModel.value = currentSettings.transformModel;
-  transformApiKey.value = currentSettings.transformApiKey;
   updateTransformVisibility();
+  await refreshSecretStatus();
 
   // Hotkey
   hotkeyText.textContent = currentSettings.hotkey.replace(
@@ -173,16 +185,43 @@ async function checkModelStatus() {
   (downloadBtn as HTMLButtonElement).disabled = downloaded;
 }
 
+async function refreshSecretStatus() {
+  const status = await invoke<SecretStatus>("get_secret_status");
+
+  groqSecretStatus.textContent = status.hasGroqApiKey
+    ? "Stored securely in OS keychain"
+    : "Not stored";
+  groqClearBtn.disabled = !status.hasGroqApiKey;
+
+  transformSecretStatus.textContent = status.hasTransformApiKey
+    ? "Stored securely in OS keychain"
+    : "Not stored";
+  transformClearBtn.disabled = !status.hasTransformApiKey;
+}
+
 async function saveSettings() {
   currentSettings.microphone = micSelect.value;
   currentSettings.whisperModel = modelSelect.value;
-  currentSettings.groqApiKey = groqKey.value;
   currentSettings.language = languageSelect.value;
   currentSettings.transformProvider = transformProviderSelect.value;
   currentSettings.transformBaseUrl = transformBaseUrl.value;
   currentSettings.transformModel = transformModel.value;
-  currentSettings.transformApiKey = transformApiKey.value;
   await invoke("save_settings", { settings: currentSettings });
+}
+
+async function storeSecret(kind: "groq" | "transform", input: HTMLInputElement) {
+  const value = input.value.trim();
+  if (!value) return;
+
+  await invoke("set_provider_secret", { kind, value });
+  input.value = "";
+  await refreshSecretStatus();
+}
+
+async function clearSecret(kind: "groq" | "transform", input: HTMLInputElement) {
+  await invoke("clear_provider_secret", { kind });
+  input.value = "";
+  await refreshSecretStatus();
 }
 
 // Event listeners
@@ -220,7 +259,8 @@ downloadBtn.addEventListener("click", async () => {
   downloadProgress.classList.add("hidden");
 });
 
-groqKey.addEventListener("change", () => saveSettings());
+groqStoreBtn.addEventListener("click", () => storeSecret("groq", groqKey));
+groqClearBtn.addEventListener("click", () => clearSecret("groq", groqKey));
 
 modeToggle.addEventListener("click", () => {
   setRecordingMode("toggle");
@@ -250,7 +290,12 @@ transformProviderSelect.addEventListener("change", () => {
 
 transformBaseUrl.addEventListener("change", () => saveSettings());
 transformModel.addEventListener("change", () => saveSettings());
-transformApiKey.addEventListener("change", () => saveSettings());
+transformStoreBtn.addEventListener("click", () =>
+  storeSecret("transform", transformApiKey),
+);
+transformClearBtn.addEventListener("click", () =>
+  clearSecret("transform", transformApiKey),
+);
 
 // Listen for recording state changes
 listen<string>("recording-state", (event) => {

@@ -2,6 +2,7 @@ use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use serde_json::json;
 
 use crate::cleanup::cleanup_text;
+use crate::secrets::{get_secret, SecretKind};
 use crate::settings::Settings;
 
 pub enum TransformProvider {
@@ -109,11 +110,7 @@ pub async fn apply_text_transform(settings: &Settings, text: &str) -> Result<Str
 fn build_transform_provider(settings: &Settings) -> TransformProvider {
     match settings.transform_provider.as_str() {
         "lmstudio" | "openai-compatible" => {
-            let api_key = if settings.transform_api_key.trim().is_empty() {
-                None
-            } else {
-                Some(settings.transform_api_key.clone())
-            };
+            let api_key = get_secret(SecretKind::TransformApiKey).ok().flatten();
 
             TransformProvider::OpenAiCompatible {
                 base_url: settings.transform_base_url.clone(),

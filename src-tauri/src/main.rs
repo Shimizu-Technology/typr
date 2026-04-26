@@ -8,6 +8,7 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use typr_lib::audio;
 use typr_lib::downloader;
 use typr_lib::recorder::{Recorder, RecordingState};
+use typr_lib::secrets;
 use typr_lib::settings::Settings;
 use typr_lib::transcribe_local;
 
@@ -43,6 +44,23 @@ fn list_microphones() -> Vec<audio::MicDevice> {
 #[tauri::command]
 fn get_recording_state(state: State<AppState>) -> RecordingState {
     state.recorder.get_state()
+}
+
+#[tauri::command]
+fn get_secret_status() -> Result<secrets::SecretStatus, String> {
+    secrets::get_secret_status()
+}
+
+#[tauri::command]
+fn set_provider_secret(kind: String, value: String) -> Result<(), String> {
+    let kind = secrets::parse_secret_kind(&kind)?;
+    secrets::set_secret(kind, &value)
+}
+
+#[tauri::command]
+fn clear_provider_secret(kind: String) -> Result<(), String> {
+    let kind = secrets::parse_secret_kind(&kind)?;
+    secrets::delete_secret(kind)
 }
 
 #[tauri::command]
@@ -109,6 +127,9 @@ fn main() {
             save_settings,
             list_microphones,
             get_recording_state,
+            get_secret_status,
+            set_provider_secret,
+            clear_provider_secret,
             check_model_downloaded,
             download_model,
             toggle_recording,

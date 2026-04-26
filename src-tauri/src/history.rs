@@ -107,12 +107,49 @@ fn save_history(app_dir: &Path, entries: &[HistoryEntry]) -> Result<(), String> 
     fs::create_dir_all(app_dir).map_err(|e| format!("Failed to create app directory: {}", e))?;
     let json = serde_json::to_string_pretty(entries)
         .map_err(|e| format!("Failed to serialize history entries: {}", e))?;
-    fs::write(history_path(app_dir), json).map_err(|e| format!("Failed to save history: {}", e))
+    let path = history_path(app_dir);
+    let temp_path = app_dir.join("history.json.tmp");
+
+    fs::write(&temp_path, json).map_err(|e| format!("Failed to write temp history: {}", e))?;
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        fs::rename(&temp_path, &path)
+            .map_err(|e| format!("Failed to replace history file atomically: {}", e))?;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        if path.exists() {
+            let backup_path = app_dir.join("history.json.bak");
+            let _ = fs::remove_file(&backup_path);
+
+            fs::rename(&path, &backup_path)
+                .map_err(|e| format!("Failed to prepare history replacement: {}", e))?;
+
+            match fs::rename(&temp_path, &path) {
+                Ok(()) => {
+                    let _ = fs::remove_file(&backup_path);
+                }
+                Err(err) => {
+                    let _ = fs::rename(&backup_path, &path);
+                    let _ = fs::remove_file(&temp_path);
+                    return Err(format!("Failed to replace history file: {}", err));
+                }
+            }
+        } else {
+            fs::rename(&temp_path, &path)
+                .map_err(|e| format!("Failed to move history file into place: {}", e))?;
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::env::temp_dir;
 
     #[test]
     fn build_history_entry_uses_settings_snapshot() {
@@ -124,5 +161,22 @@ mod tests {
         assert_eq!(entry.engine, "local");
         assert_eq!(entry.text_mode, "raw");
         assert_eq!(entry.selected_text.as_deref(), Some("selection"));
+    }
+
+    #[test]
+    fn save_and_load_history_round_trip() {
+        let dir = temp_dir().join("typr_test_history_round_trip");
+        let _ = fs::remove_dir_all(&dir);
+
+        let settings = Settings::default();
+        let entry = build_history_entry(&settings, "raw", "final", None);
+        append_history_entry(&dir, entry.clone()).unwrap();
+
+        let entries = list_history(&dir).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].id, entry.id);
+        assert_eq!(entries[0].final_text, "final");
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }

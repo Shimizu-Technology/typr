@@ -97,7 +97,7 @@ pub async fn apply_text_transform(
     match settings.text_mode.as_str() {
         "raw" => Ok(cleaned),
         "polished" | "command" => {
-            let provider = build_transform_provider(settings);
+            let provider = build_transform_provider(settings)?;
             let transformed = provider
                 .transform(
                     &cleaned,
@@ -115,18 +115,18 @@ pub async fn apply_text_transform(
     }
 }
 
-fn build_transform_provider(settings: &Settings) -> TransformProvider {
+fn build_transform_provider(settings: &Settings) -> Result<TransformProvider, String> {
     match settings.transform_provider.as_str() {
         "lmstudio" | "openai-compatible" => {
-            let api_key = get_secret(SecretKind::TransformApiKey).ok().flatten();
+            let api_key = get_secret(SecretKind::TransformApiKey)?;
 
-            TransformProvider::OpenAiCompatible {
+            Ok(TransformProvider::OpenAiCompatible {
                 base_url: settings.transform_base_url.clone(),
                 model: settings.transform_model.clone(),
                 api_key,
-            }
+            })
         }
-        _ => TransformProvider::None,
+        _ => Ok(TransformProvider::None),
     }
 }
 

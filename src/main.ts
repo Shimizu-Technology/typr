@@ -176,6 +176,7 @@ sidebar.addEventListener("mousedown", (e) => {
 
 let currentSettings: Settings;
 let isCapturingHotkey = false;
+let isApplyingHotkey = false;
 
 function showFeedback(feedback: AppFeedback) {
   feedbackBanner.classList.remove("hidden");
@@ -810,7 +811,7 @@ historyList.addEventListener("click", async (event) => {
 window.addEventListener(
   "keydown",
   async (event) => {
-    if (!isCapturingHotkey) {
+    if (!isCapturingHotkey || event.repeat || isApplyingHotkey) {
       return;
     }
 
@@ -829,6 +830,7 @@ window.addEventListener(
       return;
     }
 
+    isApplyingHotkey = true;
     try {
       await applyHotkey(hotkey);
       setHotkeyCapture(false);
@@ -837,6 +839,8 @@ window.addEventListener(
       setHotkeyCapture(false);
       hotkeyHintText.textContent =
         error instanceof Error ? error.message : String(error);
+    } finally {
+      isApplyingHotkey = false;
     }
   },
   true,

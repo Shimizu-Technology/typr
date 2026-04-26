@@ -86,12 +86,12 @@ fn emit_error_feedback(app: &tauri::AppHandle, detail: &str) {
     let (title, normalized_detail) = if detail.contains("Copy automation failed") {
         (
             "Command mode needs Accessibility access",
-            "Typr could not read your selected text because macOS blocked copy automation. Check Accessibility permissions in the Setup card.".to_string(),
+            "Typr could not read your selected text because macOS blocked copy automation. In dev mode, enable Accessibility for the Typr debug binary and, if needed, your terminal app or /usr/bin/osascript.".to_string(),
         )
     } else if detail.contains("Paste automation failed") {
         (
             "Paste permission failed",
-            "Typr captured text, but macOS blocked paste automation. Check Accessibility permissions in the Setup card.".to_string(),
+            "Typr captured text, but macOS blocked paste automation. In dev mode, enable Accessibility for the Typr debug binary and, if needed, your terminal app or /usr/bin/osascript.".to_string(),
         )
     } else if detail.contains("selected text") {
         (
@@ -268,7 +268,7 @@ fn get_setup_status() -> SetupStatus {
     let steps = if cfg!(target_os = "macos") {
         vec![
             "Allow microphone access for Typr when macOS prompts you.".to_string(),
-            "Grant Accessibility access so Typr can paste text into other apps.".to_string(),
+            "Grant Accessibility access so Typr can paste text into other apps. In dev mode, you may also need to allow your terminal app or /usr/bin/osascript.".to_string(),
             "Keep LM Studio running if you use Polished or Command mode with a local rewrite model."
                 .to_string(),
         ]

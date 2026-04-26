@@ -12,17 +12,28 @@ pub fn check_paste_permission_status() -> PastePermissionStatus {
         match std::process::Command::new("osascript")
             .args([
                 "-e",
-                r#"tell application "System Events" to keystroke "" using command down"#,
+                r#"tell application "System Events" to return UI elements enabled"#,
             ])
             .output()
         {
-            Ok(output) if output.status.success() => PastePermissionStatus {
-                supported: true,
-                ready: true,
-                detail:
-                    "Accessibility automation looks available for selection capture and paste injection."
-                        .to_string(),
-            },
+            Ok(output) if output.status.success() => {
+                let stdout = String::from_utf8_lossy(&output.stdout).trim().to_lowercase();
+                if stdout == "true" {
+                    PastePermissionStatus {
+                        supported: true,
+                        ready: true,
+                        detail:
+                            "Accessibility automation looks available for selection capture and paste injection."
+                                .to_string(),
+                    }
+                } else {
+                    PastePermissionStatus {
+                        supported: true,
+                        ready: false,
+                        detail: "Paste automation is blocked. Enable Accessibility access for Typr before it can copy selections or paste text into other apps.".to_string(),
+                    }
+                }
+            }
             Ok(output) => PastePermissionStatus {
                 supported: true,
                 ready: false,

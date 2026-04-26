@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -12,6 +13,11 @@ const HISTORY_LIMIT: usize = 100;
 fn history_lock() -> &'static Mutex<()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     LOCK.get_or_init(|| Mutex::new(()))
+}
+
+fn history_id_counter() -> &'static AtomicU64 {
+    static COUNTER: OnceLock<AtomicU64> = OnceLock::new();
+    COUNTER.get_or_init(|| AtomicU64::new(0))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -103,7 +109,7 @@ pub fn build_history_entry(
         .unwrap_or_default();
 
     HistoryEntry {
-        id: format!("tx-{}", created_at_ms),
+        id: next_history_id(created_at_ms),
         created_at_ms,
         engine: settings.engine.clone(),
         language: settings.language.clone(),
@@ -113,6 +119,11 @@ pub fn build_history_entry(
         final_text: final_text.to_string(),
         selected_text,
     }
+}
+
+fn next_history_id(created_at_ms: u64) -> String {
+    let sequence = history_id_counter().fetch_add(1, Ordering::Relaxed);
+    format!("tx-{}-{}", created_at_ms, sequence)
 }
 
 fn history_path(app_dir: &Path) -> PathBuf {
@@ -194,5 +205,16 @@ mod tests {
         assert_eq!(entries[0].final_text, "final");
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn build_history_entry_generates_unique_ids() {
+        let settings = Settings::default();
+        let first = build_history_entry(&settings, "raw-1", "final-1", None);
+        let second = build_history_entry(&settings, "raw-2", "final-2", None);
+
+        assert_ne!(first.id, second.id);
+        assert!(first.id.starts_with("tx-"));
+        assert!(second.id.starts_with("tx-"));
     }
 }

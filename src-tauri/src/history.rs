@@ -90,8 +90,17 @@ pub fn clear_history(app_dir: &Path) -> Result<(), String> {
 fn list_history_unlocked(app_dir: &Path) -> Result<Vec<HistoryEntry>, String> {
     let path = history_path(app_dir);
     match fs::read_to_string(path) {
-        Ok(contents) => serde_json::from_str(&contents)
-            .map_err(|e| format!("Failed to parse history file: {}", e)),
+        Ok(contents) => match serde_json::from_str(&contents) {
+            Ok(entries) => Ok(entries),
+            Err(parse_err) => {
+                quarantine_corrupt_history_file(app_dir)?;
+                eprintln!(
+                    "History file was corrupt and has been quarantined: {}",
+                    parse_err
+                );
+                Ok(Vec::new())
+            }
+        },
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
         Err(err) => Err(format!("Failed to read history file: {}", err)),
     }
@@ -128,6 +137,27 @@ fn next_history_id(created_at_ms: u64) -> String {
 
 fn history_path(app_dir: &Path) -> PathBuf {
     app_dir.join("history.json")
+}
+
+fn quarantine_corrupt_history_file(app_dir: &Path) -> Result<(), String> {
+    let path = history_path(app_dir);
+    if !path.exists() {
+        return Ok(());
+    }
+
+    let suffix = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or_default();
+    let quarantine_path = app_dir.join(format!("history.corrupt.{}.json", suffix));
+
+    fs::rename(&path, &quarantine_path).map_err(|err| {
+        format!(
+            "Failed to quarantine corrupt history file {}: {}",
+            quarantine_path.display(),
+            err
+        )
+    })
 }
 
 fn save_history_unlocked(app_dir: &Path, entries: &[HistoryEntry]) -> Result<(), String> {
@@ -216,5 +246,26 @@ mod tests {
         assert_ne!(first.id, second.id);
         assert!(first.id.starts_with("tx-"));
         assert!(second.id.starts_with("tx-"));
+    }
+
+    #[test]
+    fn corrupt_history_file_is_quarantined_and_recovered() {
+        let dir = temp_dir().join("typr_test_corrupt_history");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("history.json"), "{not valid json").unwrap();
+
+        let entries = list_history(&dir).unwrap();
+        assert!(entries.is_empty());
+        assert!(!dir.join("history.json").exists());
+
+        let quarantined = fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.file_name().to_string_lossy().to_string())
+            .any(|name| name.starts_with("history.corrupt.") && name.ends_with(".json"));
+        assert!(quarantined);
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }

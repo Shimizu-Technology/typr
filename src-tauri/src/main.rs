@@ -151,7 +151,8 @@ fn set_hotkey(
         return Err("Hotkey cannot be empty.".to_string());
     }
 
-    let mut next_settings = state.settings.lock().unwrap().clone();
+    let mut settings_guard = state.settings.lock().unwrap();
+    let mut next_settings = settings_guard.clone();
     let previous_hotkey = next_settings.hotkey.clone();
 
     if previous_hotkey != hotkey {
@@ -173,7 +174,7 @@ fn set_hotkey(
         return Err(err);
     }
 
-    *state.settings.lock().unwrap() = next_settings.clone();
+    *settings_guard = next_settings.clone();
 
     Ok(next_settings)
 }

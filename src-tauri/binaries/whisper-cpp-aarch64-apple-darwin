@@ -1,0 +1,12 @@
+#!/bin/sh
+
+if command -v whisper-cpp >/dev/null 2>&1; then
+  exec whisper-cpp "$@"
+fi
+
+if command -v whisper-cli >/dev/null 2>&1; then
+  exec whisper-cli "$@"
+fi
+
+echo "Typr could not find whisper-cpp on your PATH. Install it with: brew install whisper-cpp" >&2
+exit 1

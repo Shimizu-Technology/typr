@@ -22,8 +22,8 @@ fn default_transform_model() -> String {
     "openai/gpt-oss-20b".to_string()
 }
 
-#[serde(default)]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
 pub struct Settings {
     pub microphone: String,
     pub engine: String,

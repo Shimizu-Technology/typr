@@ -57,10 +57,75 @@ struct SetupStatus {
     checks: Vec<SetupCheck>,
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AppFeedback {
+    level: String,
+    title: String,
+    detail: String,
+}
+
 fn get_app_dir() -> PathBuf {
     dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("com.typr.app")
+}
+
+fn emit_feedback(app: &tauri::AppHandle, level: &str, title: &str, detail: &str) {
+    let _ = app.emit(
+        "app-feedback",
+        AppFeedback {
+            level: level.to_string(),
+            title: title.to_string(),
+            detail: detail.to_string(),
+        },
+    );
+}
+
+fn emit_error_feedback(app: &tauri::AppHandle, detail: &str) {
+    let (title, normalized_detail) = if detail.contains("Paste automation failed") {
+        (
+            "Paste permission failed",
+            "Typr captured text, but macOS blocked paste automation. Check Accessibility permissions in the Setup card.".to_string(),
+        )
+    } else if detail.contains("selected text") {
+        (
+            "Command mode needs a selection",
+            "Select the text you want to rewrite before triggering Command mode.".to_string(),
+        )
+    } else if detail.contains("Transform provider error")
+        || detail.contains("Transform request failed")
+    {
+        (
+            "Rewrite provider failed",
+            "Typr could not reach the rewrite model. Confirm the provider, base URL, model name, and API key if required.".to_string(),
+        )
+    } else if detail.contains("Groq API key not set") || detail.contains("Groq API key is missing")
+    {
+        (
+            "Cloud transcription is not configured",
+            "Store your Groq API key securely before using Groq Cloud transcription.".to_string(),
+        )
+    } else if detail.contains("Whisper model not found") {
+        (
+            "Local model is missing",
+            "Download the configured Whisper model before using local transcription.".to_string(),
+        )
+    } else if detail.contains("No audio captured") || detail.contains("No input devices") {
+        (
+            "Microphone capture failed",
+            "Typr could not capture audio. Check your microphone selection and OS microphone permissions.".to_string(),
+        )
+    } else if detail.contains("Currently transcribing") {
+        (
+            "Typr is still busy",
+            "Wait for the current transcription to finish before starting another one.".to_string(),
+        )
+    } else {
+        ("Typr hit an error", detail.to_string())
+    };
+
+    emit_feedback(app, "error", title, normalized_detail.as_str());
 }
 
 #[tauri::command]
@@ -419,7 +484,23 @@ async fn toggle_recording(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
-    do_toggle_recording(&app, &state).await
+    match do_toggle_recording(&app, &state).await {
+        Ok(result) => {
+            if result != "recording" && !result.trim().is_empty() {
+                emit_feedback(
+                    &app,
+                    "success",
+                    "Dictation complete",
+                    "Typr transcribed your audio and attempted to paste it into the active app.",
+                );
+            }
+            Ok(result)
+        }
+        Err(err) => {
+            emit_error_feedback(&app, &err);
+            Err(err)
+        }
+    }
 }
 
 /// Shared logic for toggle recording, used by both the Tauri command and hotkey handler.
@@ -453,8 +534,21 @@ fn handle_shortcut_event(app: tauri::AppHandle, shortcut_state: ShortcutState) {
                 let state = app.state::<AppState>();
                 match mode.as_str() {
                     "toggle" => match do_toggle_recording(&app, state.inner()).await {
-                        Ok(result) => println!("[Typr] Toggle result: {}", result),
-                        Err(e) => eprintln!("[Typr] Toggle error: {}", e),
+                        Ok(result) => {
+                            println!("[Typr] Toggle result: {}", result);
+                            if result != "recording" && !result.trim().is_empty() {
+                                emit_feedback(
+                                    &app,
+                                    "success",
+                                    "Dictation complete",
+                                    "Typr transcribed your audio and attempted to paste it into the active app.",
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("[Typr] Toggle error: {}", e);
+                            emit_error_feedback(&app, &e);
+                        }
                     },
                     "push-to-talk" => {
                         let current = state.recorder.get_state();
@@ -462,7 +556,10 @@ fn handle_shortcut_event(app: tauri::AppHandle, shortcut_state: ShortcutState) {
                             let mic = state.settings.lock().unwrap().microphone.clone();
                             match state.recorder.start_recording(&app, &mic) {
                                 Ok(_) => println!("[Typr] Recording started"),
-                                Err(e) => eprintln!("[Typr] Start recording error: {}", e),
+                                Err(e) => {
+                                    eprintln!("[Typr] Start recording error: {}", e);
+                                    emit_error_feedback(&app, &e);
+                                }
                             }
                         }
                     }
@@ -482,8 +579,21 @@ fn handle_shortcut_event(app: tauri::AppHandle, shortcut_state: ShortcutState) {
                             .stop_and_transcribe(&app, &settings, &state.app_dir)
                             .await
                         {
-                            Ok(result) => println!("[Typr] Transcription: {}", result),
-                            Err(e) => eprintln!("[Typr] Transcription error: {}", e),
+                            Ok(result) => {
+                                println!("[Typr] Transcription: {}", result);
+                                if !result.trim().is_empty() {
+                                    emit_feedback(
+                                        &app,
+                                        "success",
+                                        "Push-to-talk complete",
+                                        "Typr transcribed your audio and attempted to paste it into the active app.",
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("[Typr] Transcription error: {}", e);
+                                emit_error_feedback(&app, &e);
+                            }
                         }
                     }
                 });

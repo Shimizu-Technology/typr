@@ -50,6 +50,12 @@ interface SetupStatus {
   checks: SetupCheck[];
 }
 
+interface AppFeedback {
+  level: "success" | "error" | "warning";
+  title: string;
+  detail: string;
+}
+
 interface DownloadProgress {
   downloaded: number;
   total: number;
@@ -71,6 +77,12 @@ interface HistoryEntry {
 // DOM elements
 const statusDot = document.getElementById("status-dot")!;
 const statusText = document.getElementById("status-text")!;
+const feedbackBanner = document.getElementById("feedback-banner")!;
+const feedbackTitle = document.getElementById("feedback-title")!;
+const feedbackDetail = document.getElementById("feedback-detail")!;
+const feedbackDismissBtn = document.getElementById(
+  "feedback-dismiss-btn",
+) as HTMLButtonElement;
 const readinessSummary = document.getElementById("readiness-summary")!;
 const readinessList = document.getElementById("readiness-list")!;
 const readinessRefreshBtn = document.getElementById(
@@ -164,6 +176,26 @@ sidebar.addEventListener("mousedown", (e) => {
 
 let currentSettings: Settings;
 let isCapturingHotkey = false;
+
+function showFeedback(feedback: AppFeedback) {
+  feedbackBanner.classList.remove("hidden");
+  feedbackBanner.classList.remove(
+    "feedback-banner-success",
+    "feedback-banner-error",
+    "feedback-banner-warning",
+  );
+  feedbackBanner.classList.add(`feedback-banner-${feedback.level}`);
+  feedbackTitle.textContent = feedback.title;
+  feedbackDetail.textContent = feedback.detail;
+}
+
+function hideFeedback() {
+  feedbackBanner.classList.add("hidden");
+}
+
+function toErrorDetail(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
 async function loadSettings() {
   currentSettings = await invoke<Settings>("get_settings");
@@ -528,10 +560,19 @@ downloadBtn.addEventListener("click", async () => {
     await invoke("download_model", { modelSize: modelSelect.value });
     downloadBtn.textContent = "\u2713";
     await refreshReadinessStatus();
+    showFeedback({
+      level: "success",
+      title: "Model downloaded",
+      detail: "The local Whisper model is ready for transcription.",
+    });
   } catch (e) {
     downloadBtn.textContent = "Retry";
     (downloadBtn as HTMLButtonElement).disabled = false;
-    console.error("Download failed:", e);
+    showFeedback({
+      level: "error",
+      title: "Model download failed",
+      detail: toErrorDetail(e),
+    });
   }
   downloadProgress.classList.add("hidden");
 });
@@ -581,9 +622,23 @@ transformClearBtn.addEventListener("click", () =>
 readinessRefreshBtn.addEventListener("click", () => refreshReadinessStatus());
 setupRefreshBtn.addEventListener("click", () => refreshSetupStatus());
 historyClearBtn.addEventListener("click", async () => {
-  await invoke("clear_history_entries");
-  await loadHistoryEntries();
+  try {
+    await invoke("clear_history_entries");
+    await loadHistoryEntries();
+    showFeedback({
+      level: "success",
+      title: "History cleared",
+      detail: "Local transcript history was removed from this device.",
+    });
+  } catch (error) {
+    showFeedback({
+      level: "error",
+      title: "Could not clear history",
+      detail: toErrorDetail(error),
+    });
+  }
 });
+feedbackDismissBtn.addEventListener("click", () => hideFeedback());
 hotkeyRebindBtn.addEventListener("click", () => {
   setHotkeyCapture(!isCapturingHotkey);
 });
@@ -602,15 +657,34 @@ historyList.addEventListener("click", async (event) => {
   try {
     if (action === "paste") {
       await invoke("paste_history_entry", { id });
+      showFeedback({
+        level: "success",
+        title: "History entry pasted",
+        detail: "Typr copied the saved output and attempted to paste it into the active app.",
+      });
     } else if (action === "reprocess") {
       await invoke("reprocess_history_entry", { id });
       await loadHistoryEntries();
+      showFeedback({
+        level: "success",
+        title: "History entry reprocessed",
+        detail: "Typr regenerated that transcript using your current mode and provider settings.",
+      });
     } else if (action === "delete") {
       await invoke("delete_history_entry", { id });
       await loadHistoryEntries();
+      showFeedback({
+        level: "success",
+        title: "History entry deleted",
+        detail: "That saved transcript was removed from local history.",
+      });
     }
   } catch (error) {
-    console.error(`History action failed: ${action}`, error);
+    showFeedback({
+      level: "error",
+      title: "History action failed",
+      detail: toErrorDetail(error),
+    });
   } finally {
     button.disabled = false;
   }
@@ -666,6 +740,12 @@ listen<string>("recording-state", (event) => {
     statusText.textContent = "Ready";
     void loadHistoryEntries();
   }
+});
+
+listen<AppFeedback>("app-feedback", (event) => {
+  showFeedback(event.payload);
+  void refreshReadinessStatus();
+  void refreshSetupStatus();
 });
 
 // Listen for download progress

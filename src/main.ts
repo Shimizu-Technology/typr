@@ -43,6 +43,18 @@ interface DownloadProgress {
   percent: number;
 }
 
+interface HistoryEntry {
+  id: string;
+  createdAtMs: number;
+  engine: string;
+  language: string;
+  textMode: string;
+  transformProvider: string;
+  rawText: string;
+  finalText: string;
+  selectedText?: string | null;
+}
+
 // DOM elements
 const statusDot = document.getElementById("status-dot")!;
 const statusText = document.getElementById("status-text")!;
@@ -50,6 +62,10 @@ const readinessSummary = document.getElementById("readiness-summary")!;
 const readinessList = document.getElementById("readiness-list")!;
 const readinessRefreshBtn = document.getElementById(
   "readiness-refresh-btn",
+) as HTMLButtonElement;
+const historyList = document.getElementById("history-list")!;
+const historyClearBtn = document.getElementById(
+  "history-clear-btn",
 ) as HTMLButtonElement;
 const micSelect = document.getElementById("mic-select") as HTMLSelectElement;
 const engineLocal = document.getElementById("engine-local")!;
@@ -168,6 +184,7 @@ async function loadSettings() {
   // Hotkey
   renderHotkey(currentSettings.hotkey);
   await refreshReadinessStatus();
+  await loadHistoryEntries();
 }
 
 function setEngine(engine: string) {
@@ -284,6 +301,81 @@ async function clearSecret(kind: "groq" | "transform", input: HTMLInputElement) 
   input.value = "";
   await refreshSecretStatus();
   await refreshReadinessStatus();
+}
+
+async function loadHistoryEntries() {
+  const entries = await invoke<HistoryEntry[]>("list_history_entries");
+  renderHistoryEntries(entries);
+}
+
+function renderHistoryEntries(entries: HistoryEntry[]) {
+  historyList.innerHTML = "";
+
+  if (entries.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "history-empty";
+    empty.innerHTML = `
+      <div class="history-empty-title">No transcripts yet</div>
+      <div class="history-empty-detail">Your recent dictation results will show up here after the first successful transcription.</div>
+    `;
+    historyList.appendChild(empty);
+    return;
+  }
+
+  entries.forEach((entry) => {
+    const item = document.createElement("article");
+    item.className = "history-item";
+
+    const createdAt = new Date(entry.createdAtMs).toLocaleString([], {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+
+    const selectedPreview =
+      entry.selectedText && entry.selectedText.trim().length > 0
+        ? `<div class="history-preview-block">
+            <div class="history-preview-label">Selected Text Snapshot</div>
+            <pre class="history-preview history-preview-secondary">${escapeHtml(entry.selectedText)}</pre>
+          </div>`
+        : "";
+
+    item.innerHTML = `
+      <div class="history-item-header">
+        <div>
+          <div class="history-item-title">${escapeHtml(createdAt)}</div>
+          <div class="history-meta">
+            <span>${escapeHtml(entry.engine)}</span>
+            <span>${escapeHtml(entry.textMode)}</span>
+            <span>${escapeHtml(entry.language || "auto")}</span>
+            <span>${escapeHtml(entry.transformProvider || "none")}</span>
+          </div>
+        </div>
+        <div class="history-actions">
+          <button class="btn-secondary" data-action="paste" data-id="${entry.id}">Paste</button>
+          <button class="btn-secondary" data-action="reprocess" data-id="${entry.id}">Reprocess</button>
+          <button class="btn-secondary" data-action="delete" data-id="${entry.id}">Delete</button>
+        </div>
+      </div>
+      <div class="history-preview-block">
+        <div class="history-preview-label">Latest Output</div>
+        <pre class="history-preview">${escapeHtml(entry.finalText)}</pre>
+      </div>
+      <div class="history-preview-block">
+        <div class="history-preview-label">Raw Transcript</div>
+        <pre class="history-preview history-preview-secondary">${escapeHtml(entry.rawText)}</pre>
+      </div>
+      ${selectedPreview}
+    `;
+
+    historyList.appendChild(item);
+  });
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 function renderHotkey(hotkey: string) {
@@ -441,8 +533,40 @@ transformClearBtn.addEventListener("click", () =>
   clearSecret("transform", transformApiKey),
 );
 readinessRefreshBtn.addEventListener("click", () => refreshReadinessStatus());
+historyClearBtn.addEventListener("click", async () => {
+  await invoke("clear_history_entries");
+  await loadHistoryEntries();
+});
 hotkeyRebindBtn.addEventListener("click", () => {
   setHotkeyCapture(!isCapturingHotkey);
+});
+
+historyList.addEventListener("click", async (event) => {
+  const target = event.target as HTMLElement;
+  const button = target.closest<HTMLButtonElement>("[data-action]");
+  if (!button) return;
+
+  const action = button.dataset.action;
+  const id = button.dataset.id;
+  if (!action || !id) return;
+
+  button.disabled = true;
+
+  try {
+    if (action === "paste") {
+      await invoke("paste_history_entry", { id });
+    } else if (action === "reprocess") {
+      await invoke("reprocess_history_entry", { id });
+      await loadHistoryEntries();
+    } else if (action === "delete") {
+      await invoke("delete_history_entry", { id });
+      await loadHistoryEntries();
+    }
+  } catch (error) {
+    console.error(`History action failed: ${action}`, error);
+  } finally {
+    button.disabled = false;
+  }
 });
 
 window.addEventListener(
@@ -493,6 +617,7 @@ listen<string>("recording-state", (event) => {
   } else {
     statusDot.classList.add("ready");
     statusText.textContent = "Ready";
+    void loadHistoryEntries();
   }
 });
 

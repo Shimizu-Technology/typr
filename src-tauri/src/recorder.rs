@@ -6,6 +6,8 @@ use crate::asr::build_asr_provider;
 use crate::audio::AudioRecorder;
 use crate::cleanup::cleanup_text;
 use crate::context::capture_selected_text;
+use crate::history::append_history_entry;
+use crate::history::build_history_entry;
 use crate::paste::paste_text;
 use crate::settings::Settings;
 use crate::transform::apply_text_transform;
@@ -133,7 +135,11 @@ impl Recorder {
         } else {
             None
         };
-        let final_text = apply_text_transform(settings, &cleaned, selected_text).await?;
+        let final_text = apply_text_transform(settings, &cleaned, selected_text.clone()).await?;
+
+        let history_entry =
+            build_history_entry(settings, &cleaned, &final_text, selected_text.clone());
+        append_history_entry(app_dir, history_entry)?;
 
         // Auto-paste
         if !final_text.is_empty() {

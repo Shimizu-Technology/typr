@@ -8,10 +8,14 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 use typr_lib::audio;
 use typr_lib::downloader;
+use typr_lib::history;
+use typr_lib::history::HistoryEntry;
+use typr_lib::paste::paste_text;
 use typr_lib::recorder::{Recorder, RecordingState};
 use typr_lib::secrets;
 use typr_lib::settings::Settings;
 use typr_lib::transcribe_local;
+use typr_lib::transform::apply_text_transform;
 
 struct AppState {
     recorder: Recorder,
@@ -110,6 +114,59 @@ fn set_provider_secret(kind: String, value: String) -> Result<(), String> {
 fn clear_provider_secret(kind: String) -> Result<(), String> {
     let kind = secrets::parse_secret_kind(&kind)?;
     secrets::delete_secret(kind)
+}
+
+#[tauri::command]
+fn list_history_entries(state: State<AppState>) -> Result<Vec<HistoryEntry>, String> {
+    history::list_history(&state.app_dir)
+}
+
+#[tauri::command]
+fn paste_history_entry(state: State<AppState>, id: String) -> Result<(), String> {
+    let entry = history::get_history_entry(&state.app_dir, &id)?;
+    paste_text(&entry.final_text)
+}
+
+#[tauri::command]
+async fn reprocess_history_entry(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<HistoryEntry, String> {
+    let settings = state.settings.lock().unwrap().clone();
+    let mut entry = history::get_history_entry(&state.app_dir, &id)?;
+
+    if settings.text_mode == "command" && entry.selected_text.is_none() {
+        return Err(
+            "This transcript has no saved selected text, so it cannot be reprocessed in Command mode."
+                .to_string(),
+        );
+    }
+
+    let next_text =
+        apply_text_transform(&settings, &entry.raw_text, entry.selected_text.clone()).await?;
+    entry.final_text = next_text.clone();
+    entry.engine = settings.engine.clone();
+    entry.language = settings.language.clone();
+    entry.text_mode = settings.text_mode.clone();
+    entry.transform_provider = settings.transform_provider.clone();
+
+    history::update_history_entry(&state.app_dir, &entry)?;
+
+    if !next_text.is_empty() {
+        paste_text(&next_text)?;
+    }
+
+    Ok(entry)
+}
+
+#[tauri::command]
+fn delete_history_entry(state: State<AppState>, id: String) -> Result<(), String> {
+    history::delete_history_entry(&state.app_dir, &id)
+}
+
+#[tauri::command]
+fn clear_history_entries(state: State<AppState>) -> Result<(), String> {
+    history::clear_history(&state.app_dir)
 }
 
 #[tauri::command]
@@ -431,6 +488,11 @@ fn main() {
             get_secret_status,
             set_provider_secret,
             clear_provider_secret,
+            list_history_entries,
+            paste_history_entry,
+            reprocess_history_entry,
+            delete_history_entry,
+            clear_history_entries,
             get_readiness_status,
             check_model_downloaded,
             download_model,

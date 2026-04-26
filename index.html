@@ -48,6 +48,12 @@
             </svg>
             Recording
           </a>
+          <a class="nav-item" data-section="history">
+            <svg class="nav-icon" width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M3 4.5h10M3 8h10M3 11.5h7" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+            </svg>
+            History
+          </a>
         </nav>
         <div class="sidebar-footer">
           <span class="version-text">v0.1.0</span>
@@ -260,6 +266,18 @@
               </div>
             </div>
           </div>
+        </section>
+
+        <section id="section-history" class="content-section">
+          <div class="section-header">
+            <h2 class="section-title">History</h2>
+            <p class="section-desc">Review recent dictations, paste them again, or reprocess them with your current mode</p>
+          </div>
+          <div class="history-toolbar">
+            <span class="label-hint">Reprocess uses your current output mode and rewrite provider.</span>
+            <button id="history-clear-btn" class="btn-secondary">Clear History</button>
+          </div>
+          <div id="history-list" class="history-list"></div>
         </section>
       </main>
       </div>

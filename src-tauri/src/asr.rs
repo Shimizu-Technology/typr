@@ -40,10 +40,14 @@ pub fn build_asr_provider(settings: &Settings, app_dir: &Path) -> Result<AsrProv
             model_path: app_dir.join(transcribe_local::model_filename(&settings.whisper_model)),
             language,
         }),
-        "cloud" | "groq" => Ok(AsrProvider::Groq {
-            api_key: get_secret(SecretKind::GroqApiKey)?.unwrap_or_default(),
-            language,
-        }),
+        "cloud" | "groq" => {
+            let api_key = get_secret(SecretKind::GroqApiKey)?
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| "Groq API key is missing".to_string())?;
+
+            Ok(AsrProvider::Groq { api_key, language })
+        }
         other => Err(format!("Unknown ASR provider: {}", other)),
     }
 }

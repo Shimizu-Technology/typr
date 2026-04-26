@@ -151,6 +151,9 @@ const sections = document.querySelectorAll(".content-section");
 
 navItems.forEach((item) => {
   item.addEventListener("click", () => {
+    if (isCapturingHotkey) {
+      setHotkeyCapture(false);
+    }
     const target = item.getAttribute("data-section");
     navItems.forEach((n) => n.classList.remove("active"));
     sections.forEach((s) => s.classList.remove("active"));
@@ -599,6 +602,12 @@ function setHotkeyCapture(active: boolean) {
     renderHotkey(currentSettings.hotkey);
   }
 }
+
+window.addEventListener("blur", () => {
+  if (isCapturingHotkey && !isApplyingHotkey) {
+    setHotkeyCapture(false);
+  }
+});
 
 function mapKeyboardEventToHotkey(event: KeyboardEvent): string | null {
   const modifiers: string[] = [];

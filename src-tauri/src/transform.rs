@@ -3,7 +3,7 @@ use serde_json::json;
 use std::time::Duration;
 
 use crate::cleanup::cleanup_text;
-use crate::secrets::{get_secret, SecretKind};
+use crate::secrets::{get_nonempty_secret, SecretKind};
 use crate::settings::Settings;
 
 pub enum TransformProvider {
@@ -122,7 +122,7 @@ pub async fn apply_text_transform(
 fn build_transform_provider(settings: &Settings) -> Result<TransformProvider, String> {
     match settings.transform_provider.as_str() {
         "lmstudio" | "openai-compatible" => {
-            let api_key = get_secret(SecretKind::TransformApiKey)?;
+            let api_key = get_nonempty_secret(SecretKind::TransformApiKey)?;
 
             Ok(TransformProvider::OpenAiCompatible {
                 base_url: settings.transform_base_url.clone(),

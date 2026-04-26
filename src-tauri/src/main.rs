@@ -83,7 +83,12 @@ fn emit_feedback(app: &tauri::AppHandle, level: &str, title: &str, detail: &str)
 }
 
 fn emit_error_feedback(app: &tauri::AppHandle, detail: &str) {
-    let (title, normalized_detail) = if detail.contains("Paste automation failed") {
+    let (title, normalized_detail) = if detail.contains("Copy automation failed") {
+        (
+            "Command mode needs Accessibility access",
+            "Typr could not read your selected text because macOS blocked copy automation. Check Accessibility permissions in the Setup card.".to_string(),
+        )
+    } else if detail.contains("Paste automation failed") {
         (
             "Paste permission failed",
             "Typr captured text, but macOS blocked paste automation. Check Accessibility permissions in the Setup card.".to_string(),

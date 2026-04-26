@@ -26,6 +26,12 @@ pub fn get_secret(kind: SecretKind) -> Result<Option<String>, String> {
     }
 }
 
+pub fn get_nonempty_secret(kind: SecretKind) -> Result<Option<String>, String> {
+    Ok(get_secret(kind)?
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty()))
+}
+
 pub fn set_secret(kind: SecretKind, value: &str) -> Result<(), String> {
     let entry = entry_for(kind)?;
     entry
@@ -44,8 +50,8 @@ pub fn delete_secret(kind: SecretKind) -> Result<(), String> {
 
 pub fn get_secret_status() -> Result<SecretStatus, String> {
     Ok(SecretStatus {
-        has_groq_api_key: get_secret(SecretKind::GroqApiKey)?.is_some(),
-        has_transform_api_key: get_secret(SecretKind::TransformApiKey)?.is_some(),
+        has_groq_api_key: get_nonempty_secret(SecretKind::GroqApiKey)?.is_some(),
+        has_transform_api_key: get_nonempty_secret(SecretKind::TransformApiKey)?.is_some(),
     })
 }
 

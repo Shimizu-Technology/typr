@@ -218,45 +218,53 @@ function buildStatusItem(
 }
 
 async function loadSettings() {
-  currentSettings = await invoke<Settings>("get_settings");
+  try {
+    currentSettings = await invoke<Settings>("get_settings");
 
-  // Populate mic dropdown
-  const mics = await invoke<MicDevice[]>("list_microphones");
-  micSelect.innerHTML = "";
-  mics.forEach((mic) => {
-    const option = document.createElement("option");
-    option.value = mic.name;
-    option.textContent = mic.name + (mic.is_default ? " (default)" : "");
-    micSelect.appendChild(option);
-  });
-  micSelect.value = currentSettings.microphone;
+    // Populate mic dropdown
+    const mics = await invoke<MicDevice[]>("list_microphones");
+    micSelect.innerHTML = "";
+    mics.forEach((mic) => {
+      const option = document.createElement("option");
+      option.value = mic.name;
+      option.textContent = mic.name + (mic.is_default ? " (default)" : "");
+      micSelect.appendChild(option);
+    });
+    micSelect.value = currentSettings.microphone;
 
-  // Engine
-  setEngine(currentSettings.engine);
+    // Engine
+    setEngine(currentSettings.engine);
 
-  // Model
-  modelSelect.value = currentSettings.whisperModel;
-  await checkModelStatus();
+    // Model
+    modelSelect.value = currentSettings.whisperModel;
+    await checkModelStatus();
 
-  // Recording mode
-  setRecordingMode(currentSettings.recordingMode);
+    // Recording mode
+    setRecordingMode(currentSettings.recordingMode);
 
-  // Language and text mode
-  languageSelect.value = currentSettings.language;
-  setTextMode(currentSettings.textMode);
+    // Language and text mode
+    languageSelect.value = currentSettings.language;
+    setTextMode(currentSettings.textMode);
 
-  // Transform provider
-  transformProviderSelect.value = currentSettings.transformProvider;
-  transformBaseUrl.value = currentSettings.transformBaseUrl;
-  transformModel.value = currentSettings.transformModel;
-  updateTransformVisibility();
-  await refreshSecretStatus();
+    // Transform provider
+    transformProviderSelect.value = currentSettings.transformProvider;
+    transformBaseUrl.value = currentSettings.transformBaseUrl;
+    transformModel.value = currentSettings.transformModel;
+    updateTransformVisibility();
+    await refreshSecretStatus();
 
-  // Hotkey
-  renderHotkey(currentSettings.hotkey);
-  await refreshReadinessStatus();
-  await refreshSetupStatus();
-  await loadHistoryEntries();
+    // Hotkey
+    renderHotkey(currentSettings.hotkey);
+    await refreshReadinessStatus();
+    await refreshSetupStatus();
+    await loadHistoryEntries();
+  } catch (error) {
+    showFeedback({
+      level: "error",
+      title: "Typr could not load settings",
+      detail: toErrorDetail(error),
+    });
+  }
 }
 
 function setEngine(engine: string) {
@@ -438,10 +446,14 @@ function renderHistoryEntries(entries: HistoryEntry[]) {
   if (entries.length === 0) {
     const empty = document.createElement("div");
     empty.className = "history-empty";
-    empty.innerHTML = `
-      <div class="history-empty-title">No transcripts yet</div>
-      <div class="history-empty-detail">Your recent dictation results will show up here after the first successful transcription.</div>
-    `;
+    const title = document.createElement("div");
+    title.className = "history-empty-title";
+    title.textContent = "No transcripts yet";
+    const detail = document.createElement("div");
+    detail.className = "history-empty-detail";
+    detail.textContent =
+      "Your recent dictation results will show up here after the first successful transcription.";
+    empty.append(title, detail);
     historyList.appendChild(empty);
     return;
   }
@@ -455,51 +467,79 @@ function renderHistoryEntries(entries: HistoryEntry[]) {
       timeStyle: "short",
     });
 
-    const selectedPreview =
-      entry.selectedText && entry.selectedText.trim().length > 0
-        ? `<div class="history-preview-block">
-            <div class="history-preview-label">Selected Text Snapshot</div>
-            <pre class="history-preview history-preview-secondary">${escapeHtml(entry.selectedText)}</pre>
-          </div>`
-        : "";
+    const header = document.createElement("div");
+    header.className = "history-item-header";
 
-    item.innerHTML = `
-      <div class="history-item-header">
-        <div>
-          <div class="history-item-title">${escapeHtml(createdAt)}</div>
-          <div class="history-meta">
-            <span>${escapeHtml(entry.engine)}</span>
-            <span>${escapeHtml(entry.textMode)}</span>
-            <span>${escapeHtml(entry.language || "auto")}</span>
-            <span>${escapeHtml(entry.transformProvider || "none")}</span>
-          </div>
-        </div>
-        <div class="history-actions">
-          <button class="btn-secondary" data-action="paste" data-id="${entry.id}">Paste</button>
-          <button class="btn-secondary" data-action="reprocess" data-id="${entry.id}">Reprocess</button>
-          <button class="btn-secondary" data-action="delete" data-id="${entry.id}">Delete</button>
-        </div>
-      </div>
-      <div class="history-preview-block">
-        <div class="history-preview-label">Latest Output</div>
-        <pre class="history-preview">${escapeHtml(entry.finalText)}</pre>
-      </div>
-      <div class="history-preview-block">
-        <div class="history-preview-label">Raw Transcript</div>
-        <pre class="history-preview history-preview-secondary">${escapeHtml(entry.rawText)}</pre>
-      </div>
-      ${selectedPreview}
-    `;
+    const headerInfo = document.createElement("div");
+    const title = document.createElement("div");
+    title.className = "history-item-title";
+    title.textContent = createdAt;
+    const meta = document.createElement("div");
+    meta.className = "history-meta";
+    [entry.engine, entry.textMode, entry.language || "auto", entry.transformProvider || "none"]
+      .forEach((value) => {
+        const chip = document.createElement("span");
+        chip.textContent = value;
+        meta.appendChild(chip);
+      });
+    headerInfo.append(title, meta);
+
+    const actions = document.createElement("div");
+    actions.className = "history-actions";
+    [
+      { action: "paste", label: "Paste" },
+      { action: "reprocess", label: "Reprocess" },
+      { action: "delete", label: "Delete" },
+    ].forEach(({ action, label }) => {
+      const button = document.createElement("button");
+      button.className = "btn-secondary";
+      button.type = "button";
+      button.dataset.action = action;
+      button.dataset.id = entry.id;
+      button.textContent = label;
+      actions.appendChild(button);
+    });
+
+    header.append(headerInfo, actions);
+    item.appendChild(header);
+
+    item.appendChild(
+      buildHistoryPreviewBlock("Latest Output", entry.finalText, false),
+    );
+    item.appendChild(
+      buildHistoryPreviewBlock("Raw Transcript", entry.rawText, true),
+    );
+
+    if (entry.selectedText && entry.selectedText.trim().length > 0) {
+      item.appendChild(
+        buildHistoryPreviewBlock("Selected Text Snapshot", entry.selectedText, true),
+      );
+    }
 
     historyList.appendChild(item);
   });
 }
 
-function escapeHtml(value: string) {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+function buildHistoryPreviewBlock(
+  label: string,
+  value: string,
+  secondary: boolean,
+) {
+  const block = document.createElement("div");
+  block.className = "history-preview-block";
+
+  const blockLabel = document.createElement("div");
+  blockLabel.className = "history-preview-label";
+  blockLabel.textContent = label;
+
+  const preview = document.createElement("pre");
+  preview.className = secondary
+    ? "history-preview history-preview-secondary"
+    : "history-preview";
+  preview.textContent = value;
+
+  block.append(blockLabel, preview);
+  return block;
 }
 
 function renderHotkey(hotkey: string) {
@@ -801,4 +841,4 @@ listen<DownloadProgress>("download-progress", (event) => {
 });
 
 // Initialize
-loadSettings();
+void loadSettings();

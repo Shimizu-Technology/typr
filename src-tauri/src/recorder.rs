@@ -126,15 +126,16 @@ impl Recorder {
             recorder.stop_and_save(&temp_path)?;
         }
 
-        let asr_provider = build_asr_provider(settings, app_dir)?;
-        let raw_text = asr_provider.transcribe(app, &temp_path).await?;
-
-        let cleaned = cleanup_text(&raw_text);
         let selected_text = if settings.text_mode == "command" {
             Some(capture_selected_text()?)
         } else {
             None
         };
+
+        let asr_provider = build_asr_provider(settings, app_dir)?;
+        let raw_text = asr_provider.transcribe(app, &temp_path).await?;
+
+        let cleaned = cleanup_text(&raw_text);
         let final_text = apply_text_transform(settings, &cleaned, selected_text.clone()).await?;
 
         let history_entry =

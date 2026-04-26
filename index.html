@@ -48,6 +48,12 @@
             </svg>
             Recording
           </a>
+          <a class="nav-item" data-section="history">
+            <svg class="nav-icon" width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M3 4.5h10M3 8h10M3 11.5h7" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+            </svg>
+            History
+          </a>
         </nav>
         <div class="sidebar-footer">
           <span class="version-text">v0.1.0</span>
@@ -55,10 +61,43 @@
       </aside>
 
       <main id="content">
+        <div id="feedback-banner" class="feedback-banner hidden">
+          <div class="feedback-copy">
+            <div id="feedback-title" class="feedback-title">Status</div>
+            <div id="feedback-detail" class="feedback-detail"></div>
+          </div>
+          <button id="feedback-dismiss-btn" class="btn-secondary">Dismiss</button>
+        </div>
         <section id="section-general" class="content-section active">
           <div class="section-header">
             <h2 class="section-title">General</h2>
             <p class="section-desc">Configure your audio input and transcription defaults</p>
+          </div>
+          <div class="readiness-card">
+            <div class="readiness-card-header">
+              <div>
+                <div class="label-text">Readiness</div>
+                <div class="label-hint">Quick checks for your current engine, hotkey, and rewrite mode</div>
+              </div>
+              <button id="readiness-refresh-btn" class="btn-secondary">Refresh</button>
+            </div>
+            <p id="readiness-summary" class="readiness-summary">Checking current setup…</p>
+            <div id="readiness-list" class="readiness-list"></div>
+          </div>
+          <div class="setup-card">
+            <div class="readiness-card-header">
+              <div>
+                <div class="label-text">Setup</div>
+                <div class="label-hint">First-run checks for microphone and paste permissions</div>
+              </div>
+              <button id="setup-refresh-btn" class="btn-secondary">Refresh</button>
+            </div>
+            <p id="setup-summary" class="readiness-summary">Checking permissions…</p>
+            <div id="setup-check-list" class="setup-check-list"></div>
+            <div class="setup-steps">
+              <div class="history-preview-label">Recommended Next Steps</div>
+              <ul id="setup-steps-list"></ul>
+            </div>
           </div>
           <div class="settings-list">
             <div class="setting-row">
@@ -92,12 +131,13 @@
             <div class="setting-row">
               <div class="setting-label">
                 <span class="label-text">Output Mode</span>
-                <span class="label-hint">Raw preserves your words, Polished runs an optional rewrite model</span>
+                <span class="label-hint">Command mode rewrites selected text using your spoken instruction</span>
               </div>
               <div class="setting-control">
                 <div class="toggle-group">
                   <button id="text-mode-raw" class="toggle-btn active">Raw</button>
                   <button id="text-mode-polished" class="toggle-btn">Polished</button>
+                  <button id="text-mode-command" class="toggle-btn">Command</button>
                 </div>
               </div>
             </div>
@@ -146,13 +186,20 @@
                 <span class="label-hint">Get your key from console.groq.com</span>
               </div>
               <div class="setting-control">
-                <input type="password" id="groq-key" placeholder="gsk_..." />
+                <div class="secret-control">
+                  <input type="password" id="groq-key" placeholder="Paste a key and click Store" />
+                  <div class="secret-actions">
+                    <button id="groq-store-btn" class="btn-secondary">Store</button>
+                    <button id="groq-clear-btn" class="btn-secondary">Clear</button>
+                  </div>
+                  <span id="groq-secret-status" class="secret-status">Not stored</span>
+                </div>
               </div>
             </div>
             <div class="setting-row" id="transform-provider-row">
               <div class="setting-label">
                 <span class="label-text">Rewrite Provider</span>
-                <span class="label-hint">Used only in Polished mode</span>
+                <span class="label-hint">Used in Polished and Command modes</span>
               </div>
               <div class="setting-control">
                 <select id="transform-provider-select">
@@ -187,7 +234,14 @@
                   <span class="label-hint">Optional for LM Studio, required for many remote providers</span>
                 </div>
                 <div class="setting-control">
-                  <input type="password" id="transform-api-key" placeholder="sk-..." />
+                  <div class="secret-control">
+                    <input type="password" id="transform-api-key" placeholder="Paste a key and click Store" />
+                    <div class="secret-actions">
+                      <button id="transform-store-btn" class="btn-secondary">Store</button>
+                      <button id="transform-clear-btn" class="btn-secondary">Clear</button>
+                    </div>
+                    <span id="transform-secret-status" class="secret-status">Not stored</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -218,10 +272,34 @@
                 <span class="label-hint">Global keyboard shortcut to trigger recording</span>
               </div>
               <div class="setting-control">
-                <kbd id="hotkey-text">Cmd+Shift+D</kbd>
+                <div class="hotkey-control">
+                  <kbd id="hotkey-text">Cmd+Shift+D</kbd>
+                  <button id="hotkey-rebind-btn" class="btn-secondary">Change</button>
+                </div>
+              </div>
+            </div>
+            <div class="setting-row setting-row-compact">
+              <div class="setting-label">
+                <span class="label-text">Hotkey Help</span>
+                <span class="label-hint">Escape cancels capture if you change your mind</span>
+              </div>
+              <div class="setting-control">
+                <span id="hotkey-hint-text" class="inline-hint">Global keyboard shortcut to trigger recording</span>
               </div>
             </div>
           </div>
+        </section>
+
+        <section id="section-history" class="content-section">
+          <div class="section-header">
+            <h2 class="section-title">History</h2>
+            <p class="section-desc">Review recent dictations, paste them again, or reprocess them with your current mode</p>
+          </div>
+          <div class="history-toolbar">
+            <span class="label-hint">Reprocess uses your current output mode and rewrite provider.</span>
+            <button id="history-clear-btn" class="btn-secondary">Clear History</button>
+          </div>
+          <div id="history-list" class="history-list"></div>
         </section>
       </main>
       </div>

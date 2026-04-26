@@ -9,6 +9,13 @@ pub struct MicDevice {
     pub is_default: bool,
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioInputStatus {
+    pub input_device_count: usize,
+    pub has_default_input: bool,
+}
+
 pub fn list_microphones() -> Vec<MicDevice> {
     let host = cpal::default_host();
     let default_name = host
@@ -28,6 +35,20 @@ pub fn list_microphones() -> Vec<MicDevice> {
         }
     }
     devices
+}
+
+pub fn audio_input_status() -> AudioInputStatus {
+    let host = cpal::default_host();
+    let has_default_input = host.default_input_device().is_some();
+    let input_device_count = host
+        .input_devices()
+        .map(|devices| devices.count())
+        .unwrap_or_default();
+
+    AudioInputStatus {
+        input_device_count,
+        has_default_input,
+    }
 }
 
 /// Wrapper to make cpal::Stream usable across threads.

@@ -29,8 +29,6 @@ pub struct Settings {
     pub engine: String,
     #[serde(rename = "whisperModel")]
     pub whisper_model: String,
-    #[serde(rename = "groqApiKey")]
-    pub groq_api_key: String,
     #[serde(rename = "recordingMode")]
     pub recording_mode: String,
     pub hotkey: String,
@@ -44,8 +42,6 @@ pub struct Settings {
     pub transform_base_url: String,
     #[serde(rename = "transformModel", default = "default_transform_model")]
     pub transform_model: String,
-    #[serde(rename = "transformApiKey", default)]
-    pub transform_api_key: String,
 }
 
 impl Default for Settings {
@@ -54,7 +50,6 @@ impl Default for Settings {
             microphone: "default".to_string(),
             engine: "local".to_string(),
             whisper_model: "small".to_string(),
-            groq_api_key: String::new(),
             recording_mode: "toggle".to_string(),
             hotkey: "CmdOrCtrl+Shift+Space".to_string(),
             language: default_language(),
@@ -62,7 +57,6 @@ impl Default for Settings {
             transform_provider: default_transform_provider(),
             transform_base_url: default_transform_base_url(),
             transform_model: default_transform_model(),
-            transform_api_key: String::new(),
         }
     }
 }
@@ -84,7 +78,39 @@ impl Settings {
         let path = Self::config_path(app_dir);
         fs::create_dir_all(app_dir).map_err(|e| e.to_string())?;
         let json = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
-        fs::write(&path, json).map_err(|e| e.to_string())
+        let temp_path = app_dir.join(format!("config.json.tmp.{}", std::process::id()));
+
+        fs::write(&temp_path, json).map_err(|e| e.to_string())?;
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            fs::rename(&temp_path, &path).map_err(|e| e.to_string())?;
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            if path.exists() {
+                let backup_path = app_dir.join("config.json.bak");
+                let _ = fs::remove_file(&backup_path);
+
+                fs::rename(&path, &backup_path).map_err(|e| e.to_string())?;
+
+                match fs::rename(&temp_path, &path) {
+                    Ok(()) => {
+                        let _ = fs::remove_file(&backup_path);
+                    }
+                    Err(err) => {
+                        let _ = fs::rename(&backup_path, &path);
+                        let _ = fs::remove_file(&temp_path);
+                        return Err(err.to_string());
+                    }
+                }
+            } else {
+                fs::rename(&temp_path, &path).map_err(|e| e.to_string())?;
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -99,7 +125,6 @@ mod tests {
         assert_eq!(settings.microphone, "default");
         assert_eq!(settings.engine, "local");
         assert_eq!(settings.whisper_model, "small");
-        assert_eq!(settings.groq_api_key, "");
         assert_eq!(settings.recording_mode, "toggle");
         assert_eq!(settings.hotkey, "CmdOrCtrl+Shift+Space");
         assert_eq!(settings.language, "auto");
@@ -107,7 +132,6 @@ mod tests {
         assert_eq!(settings.transform_provider, "none");
         assert_eq!(settings.transform_base_url, "http://localhost:1234/v1");
         assert_eq!(settings.transform_model, "openai/gpt-oss-20b");
-        assert_eq!(settings.transform_api_key, "");
     }
 
     #[test]
@@ -117,7 +141,6 @@ mod tests {
 
         let mut settings = Settings::default();
         settings.engine = "cloud".to_string();
-        settings.groq_api_key = "test-key-123".to_string();
         settings.language = "es".to_string();
         settings.text_mode = "polished".to_string();
         settings.transform_provider = "lmstudio".to_string();
@@ -127,7 +150,6 @@ mod tests {
         let loaded = Settings::load(&dir);
 
         assert_eq!(loaded.engine, "cloud");
-        assert_eq!(loaded.groq_api_key, "test-key-123");
         assert_eq!(loaded.language, "es");
         assert_eq!(loaded.text_mode, "polished");
         assert_eq!(loaded.transform_provider, "lmstudio");

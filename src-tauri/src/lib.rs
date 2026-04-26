@@ -1,9 +1,12 @@
 pub mod asr;
 pub mod audio;
 pub mod cleanup;
+pub mod context;
 pub mod downloader;
+pub mod history;
 pub mod paste;
 pub mod recorder;
+pub mod secrets;
 pub mod settings;
 pub mod transcribe_groq;
 pub mod transcribe_local;

@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use tauri::AppHandle;
 
+use crate::secrets::{get_nonempty_secret, SecretKind};
 use crate::settings::Settings;
 use crate::transcribe_groq;
 use crate::transcribe_local;
@@ -39,10 +40,12 @@ pub fn build_asr_provider(settings: &Settings, app_dir: &Path) -> Result<AsrProv
             model_path: app_dir.join(transcribe_local::model_filename(&settings.whisper_model)),
             language,
         }),
-        "cloud" | "groq" => Ok(AsrProvider::Groq {
-            api_key: settings.groq_api_key.clone(),
-            language,
-        }),
+        "cloud" | "groq" => {
+            let api_key = get_nonempty_secret(SecretKind::GroqApiKey)?
+                .ok_or_else(|| "Groq API key is missing".to_string())?;
+
+            Ok(AsrProvider::Groq { api_key, language })
+        }
         other => Err(format!("Unknown ASR provider: {}", other)),
     }
 }

@@ -1,6 +1,7 @@
 pub mod asr;
 pub mod audio;
 pub mod cleanup;
+pub mod context;
 pub mod downloader;
 pub mod paste;
 pub mod recorder;

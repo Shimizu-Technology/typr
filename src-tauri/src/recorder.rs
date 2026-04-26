@@ -5,6 +5,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use crate::asr::build_asr_provider;
 use crate::audio::AudioRecorder;
 use crate::cleanup::cleanup_text;
+use crate::context::capture_selected_text;
 use crate::paste::paste_text;
 use crate::settings::Settings;
 use crate::transform::apply_text_transform;
@@ -127,7 +128,12 @@ impl Recorder {
         let raw_text = asr_provider.transcribe(app, &temp_path).await?;
 
         let cleaned = cleanup_text(&raw_text);
-        let final_text = apply_text_transform(settings, &cleaned).await?;
+        let selected_text = if settings.text_mode == "command" {
+            Some(capture_selected_text()?)
+        } else {
+            None
+        };
+        let final_text = apply_text_transform(settings, &cleaned, selected_text).await?;
 
         // Auto-paste
         if !final_text.is_empty() {

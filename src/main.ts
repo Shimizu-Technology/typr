@@ -53,6 +53,7 @@ const hotkeyText = document.getElementById("hotkey-text")!;
 const languageSelect = document.getElementById("language-select") as HTMLSelectElement;
 const textModeRaw = document.getElementById("text-mode-raw")!;
 const textModePolished = document.getElementById("text-mode-polished")!;
+const textModeCommand = document.getElementById("text-mode-command")!;
 const transformProviderSelect = document.getElementById(
   "transform-provider-select",
 ) as HTMLSelectElement;
@@ -167,12 +168,14 @@ function setTextMode(mode: string) {
   currentSettings.textMode = mode;
   textModeRaw.classList.toggle("active", mode === "raw");
   textModePolished.classList.toggle("active", mode === "polished");
+  textModeCommand.classList.toggle("active", mode === "command");
   updateTransformVisibility();
 }
 
 function updateTransformVisibility() {
   const showTransformSettings =
-    currentSettings.textMode === "polished" &&
+    (currentSettings.textMode === "polished" ||
+      currentSettings.textMode === "command") &&
     currentSettings.transformProvider !== "none";
   transformSettings.classList.toggle("hidden", !showTransformSettings);
 }
@@ -279,6 +282,11 @@ textModeRaw.addEventListener("click", () => {
 
 textModePolished.addEventListener("click", () => {
   setTextMode("polished");
+  saveSettings();
+});
+
+textModeCommand.addEventListener("click", () => {
+  setTextMode("command");
   saveSettings();
 });
 

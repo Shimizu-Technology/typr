@@ -17,6 +17,7 @@ pub enum TransformProvider {
 pub struct TransformRequest {
     pub mode: String,
     pub language: String,
+    pub selected_text: Option<String>,
 }
 
 impl TransformProvider {
@@ -83,28 +84,35 @@ impl TransformProvider {
     }
 }
 
-pub async fn apply_text_transform(settings: &Settings, text: &str) -> Result<String, String> {
+pub async fn apply_text_transform(
+    settings: &Settings,
+    text: &str,
+    selected_text: Option<String>,
+) -> Result<String, String> {
     let cleaned = cleanup_text(text);
     if cleaned.is_empty() {
         return Ok(cleaned);
     }
 
-    if settings.text_mode != "polished" {
-        return Ok(cleaned);
+    match settings.text_mode.as_str() {
+        "raw" => Ok(cleaned),
+        "polished" | "command" => {
+            let provider = build_transform_provider(settings);
+            let transformed = provider
+                .transform(
+                    &cleaned,
+                    &TransformRequest {
+                        mode: settings.text_mode.clone(),
+                        language: settings.language.clone(),
+                        selected_text,
+                    },
+                )
+                .await?;
+
+            Ok(cleanup_text(&transformed))
+        }
+        _ => Ok(cleaned),
     }
-
-    let provider = build_transform_provider(settings);
-    let transformed = provider
-        .transform(
-            &cleaned,
-            &TransformRequest {
-                mode: settings.text_mode.clone(),
-                language: settings.language.clone(),
-            },
-        )
-        .await?;
-
-    Ok(cleanup_text(&transformed))
 }
 
 fn build_transform_provider(settings: &Settings) -> TransformProvider {
@@ -137,6 +145,18 @@ fn build_mode_prompt(request: &TransformRequest, text: &str) -> String {
             "Rewrite this dictated text so it is polished but still faithful to the speaker. {} Remove obvious filler words when safe, fix punctuation conservatively, and preserve formatting.\n\n{}",
             language_hint, text
         ),
+        "command" => {
+            let selected_text = request
+                .selected_text
+                .as_deref()
+                .unwrap_or("")
+                .trim();
+
+            format!(
+                "Apply the following spoken editing instruction to the selected text. {} Return only the edited replacement text.\n\nInstruction:\n{}\n\nSelected text:\n{}",
+                language_hint, text, selected_text
+            )
+        }
         _ => text.to_string(),
     }
 }
@@ -154,11 +174,27 @@ mod tests {
                 &TransformRequest {
                     mode: "polished".to_string(),
                     language: "auto".to_string(),
+                    selected_text: None,
                 },
             )
             .await
             .unwrap();
 
         assert_eq!(result, "hello world");
+    }
+
+    #[test]
+    fn test_build_command_prompt_contains_instruction_and_selection() {
+        let prompt = build_mode_prompt(
+            &TransformRequest {
+                mode: "command".to_string(),
+                language: "auto".to_string(),
+                selected_text: Some("old text".to_string()),
+            },
+            "make this shorter",
+        );
+
+        assert!(prompt.contains("Instruction:\nmake this shorter"));
+        assert!(prompt.contains("Selected text:\nold text"));
     }
 }

@@ -1,12 +1,45 @@
 #!/bin/sh
 
-if command -v whisper-cpp >/dev/null 2>&1; then
-  exec whisper-cpp "$@"
-fi
+find_whisper() {
+  for candidate in \
+    "${WHISPER_CPP_BIN:-}" \
+    "/opt/homebrew/bin/whisper-cpp" \
+    "/opt/homebrew/bin/whisper-cli" \
+    "/usr/local/bin/whisper-cpp" \
+    "/usr/local/bin/whisper-cli"
+  do
+    if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+      echo "$candidate"
+      return 0
+    fi
+  done
 
-if command -v whisper-cli >/dev/null 2>&1; then
-  exec whisper-cli "$@"
-fi
+  if command -v brew >/dev/null 2>&1; then
+    BREW_PREFIX="$(brew --prefix whisper-cpp 2>/dev/null || true)"
+    for candidate in \
+      "$BREW_PREFIX/bin/whisper-cpp" \
+      "$BREW_PREFIX/bin/whisper-cli"
+    do
+      if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+        echo "$candidate"
+        return 0
+      fi
+    done
+  fi
 
-echo "Typr could not find whisper-cpp on your PATH. Install it with: brew install whisper-cpp" >&2
-exit 1
+  for candidate in whisper-cpp whisper-cli; do
+    if command -v "$candidate" >/dev/null 2>&1; then
+      command -v "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+WHISPER_BIN="$(find_whisper)" || {
+  echo "Typr could not find whisper-cpp. Install it with: brew install whisper-cpp, or set WHISPER_CPP_BIN to the executable path." >&2
+  exit 1
+}
+
+exec "$WHISPER_BIN" "$@"

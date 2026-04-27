@@ -5,6 +5,7 @@ const TYPR_BUNDLE_ID: &str = "com.typr.app";
 
 #[derive(Debug, Clone)]
 pub struct FocusTarget {
+    pub app_name: String,
     pub bundle_id: String,
     #[cfg(target_os = "macos")]
     pub pid: i32,
@@ -30,7 +31,11 @@ pub fn capture_focus_target() -> Option<FocusTarget> {
         app_name, bundle_id, pid
     );
 
-    Some(FocusTarget { bundle_id, pid })
+    Some(FocusTarget {
+        app_name,
+        bundle_id,
+        pid,
+    })
 }
 
 #[cfg(target_os = "macos")]
@@ -53,14 +58,62 @@ pub fn restore_focus_target(target: &FocusTarget) -> Result<(), String> {
         target.pid, target.bundle_id, unhide_ok, activate_ok
     );
 
-    if activate_ok {
-        Ok(())
-    } else {
+    if !activate_ok {
         Err(format!(
             "macOS denied activation for pid {} ({})",
             target.pid, target.bundle_id
         ))
+    } else {
+        for attempt in 1..=20 {
+            let Some(frontmost) = current_frontmost_target() else {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+                continue;
+            };
+
+            println!(
+                "[Typr] Focus check attempt {}: frontmost {} ({}) pid={}",
+                attempt, frontmost.app_name, frontmost.bundle_id, frontmost.pid
+            );
+
+            if frontmost.pid == target.pid {
+                return Ok(());
+            }
+
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+
+        let current = current_frontmost_target()
+            .map(|frontmost| {
+                format!(
+                    "frontmost is {} ({}) pid={}",
+                    frontmost.app_name, frontmost.bundle_id, frontmost.pid
+                )
+            })
+            .unwrap_or_else(|| "frontmost app could not be determined".to_string());
+
+        Err(format!(
+            "Target app never became frontmost after activation; {}",
+            current
+        ))
     }
+}
+
+#[cfg(target_os = "macos")]
+fn current_frontmost_target() -> Option<FocusTarget> {
+    let workspace = NSWorkspace::sharedWorkspace();
+    let app = workspace.frontmostApplication()?;
+    let bundle_id = app.bundleIdentifier()?.to_string();
+    let pid = app.processIdentifier();
+    let app_name = app
+        .localizedName()
+        .map(|name| name.to_string())
+        .unwrap_or_else(|| bundle_id.clone());
+
+    Some(FocusTarget {
+        app_name,
+        bundle_id,
+        pid,
+    })
 }
 
 #[cfg(not(target_os = "macos"))]

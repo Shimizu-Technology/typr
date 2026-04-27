@@ -1,7 +1,7 @@
 #[cfg(target_os = "macos")]
 use objc2_app_kit::{NSApplicationActivationOptions, NSRunningApplication, NSWorkspace};
 
-const TYPR_BUNDLE_ID: &str = "com.typr.app";
+const TYPR_BUNDLE_ID: &str = "com.shimizutechnology.typr";
 
 #[derive(Debug, Clone)]
 pub struct FocusTarget {

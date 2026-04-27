@@ -1,6 +1,6 @@
 use keyring::Entry;
 
-const SERVICE_NAME: &str = "com.typr.app";
+const SERVICE_NAME: &str = "com.shimizutechnology.typr";
 
 #[derive(Clone, Copy)]
 pub enum SecretKind {

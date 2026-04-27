@@ -135,6 +135,8 @@ pub fn paste_text(
     }
 
     let mut delivery_error: Option<String> = None;
+    let mut verified_delivery = false;
+    let mut attempted_fallback_injection = false;
 
     // On macOS, prefer direct text insertion at the focused cursor.
     #[cfg(target_os = "macos")]
@@ -146,13 +148,18 @@ pub fn paste_text(
             if let Err(text_err) = run_macos_text_input(app, text) {
                 eprintln!("[Typr] Direct text insertion failed: {}", text_err);
                 println!("[Typr] Falling back to native macOS paste shortcut");
+                attempted_fallback_injection = true;
                 if let Err(paste_err) = run_macos_shortcut(app, 'v') {
                     delivery_error = Some(format!(
                         "Accessibility insertion failed: {}. Direct text insertion failed: {}. Paste automation also failed: {}",
                         ax_err, text_err, paste_err
                     ));
                 }
+            } else {
+                attempted_fallback_injection = true;
             }
+        } else {
+            verified_delivery = true;
         }
     }
 
@@ -190,6 +197,20 @@ pub fn paste_text(
                 "Typr copied the text to your clipboard, but could not inject it at the cursor: {}",
                 err
             ),
+        });
+    }
+
+    #[cfg(target_os = "macos")]
+    if !verified_delivery {
+        let detail = if attempted_fallback_injection {
+            "Typr copied the text to your clipboard and attempted to insert it at the cursor, but macOS did not expose a verifiable accessibility text target for this app in the current session.".to_string()
+        } else {
+            "Typr copied the text to your clipboard, but could not verify insertion at the cursor on macOS.".to_string()
+        };
+
+        return Ok(TextDeliveryResult {
+            delivered_to_cursor: false,
+            detail,
         });
     }
 

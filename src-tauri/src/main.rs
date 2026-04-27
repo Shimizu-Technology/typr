@@ -82,7 +82,7 @@ struct ReprocessHistoryResponse {
 fn get_app_dir() -> PathBuf {
     dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("com.typr.app")
+        .join("com.shimizutechnology.typr")
 }
 
 fn emit_feedback(app: &tauri::AppHandle, level: &str, title: &str, detail: &str) {

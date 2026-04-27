@@ -1,6 +1,8 @@
 use tauri::AppHandle;
 use crate::focus::{restore_focus_target, FocusTarget};
 use crate::logger;
+#[cfg(target_os = "macos")]
+use crate::macos_input::{release_common_modifiers, send_command_shortcut};
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -422,45 +424,6 @@ fn enable_target_accessibility(target: &FocusTarget) -> Option<String> {
 }
 
 #[cfg(target_os = "macos")]
-fn run_macos_shortcut(app: &AppHandle, key: char) -> Result<(), String> {
-    use enigo::{Direction, Enigo, Key, Keyboard, Settings};
-    use std::sync::mpsc;
-
-    let (tx, rx) = mpsc::channel();
-    app.run_on_main_thread(move || {
-        let result = (|| -> Result<(), String> {
-            let mut enigo = Enigo::new(&Settings::default()).map_err(|e| e.to_string())?;
-            release_common_modifiers(&mut enigo)?;
-            enigo
-                .key(Key::Meta, Direction::Press)
-                .map_err(|e| e.to_string())?;
-            let click_result = enigo
-                .key(Key::Unicode(key), Direction::Click)
-                .map_err(|e| e.to_string());
-            let release_result = enigo
-                .key(Key::Meta, Direction::Release)
-                .map_err(|e| e.to_string());
-
-            match (click_result, release_result) {
-                (Err(click_err), Err(release_err)) => Err(format!(
-                    "{}. Also failed to release Command: {}",
-                    click_err, release_err
-                )),
-                (Err(click_err), Ok(())) => Err(click_err),
-                (Ok(()), Err(release_err)) => Err(release_err),
-                (Ok(()), Ok(())) => Ok(()),
-            }
-        })();
-
-        let _ = tx.send(result);
-    })
-    .map_err(|e| format!("Failed to schedule macOS paste shortcut: {}", e))?;
-
-    rx.recv()
-        .map_err(|e| format!("Failed to receive macOS paste shortcut result: {}", e))?
-}
-
-#[cfg(target_os = "macos")]
 fn run_macos_shortcut_with_retry(app: &AppHandle, key: char, attempts: usize) -> Result<(), String> {
     let mut last_error = None;
 
@@ -470,7 +433,7 @@ fn run_macos_shortcut_with_retry(app: &AppHandle, key: char, attempts: usize) ->
             attempt, attempts
         ));
 
-        match run_macos_shortcut(app, key) {
+        match send_command_shortcut(app, key) {
             Ok(()) => return Ok(()),
             Err(err) => {
                 last_error = Some(err);
@@ -492,7 +455,7 @@ fn run_macos_text_input(app: &AppHandle, text: &str) -> Result<(), String> {
     app.run_on_main_thread(move || {
         let result = (|| -> Result<(), String> {
             let mut enigo = Enigo::new(&Settings::default()).map_err(|e| e.to_string())?;
-            release_common_modifiers(&mut enigo)?;
+            release_common_modifiers()?;
             std::thread::sleep(std::time::Duration::from_millis(50));
             enigo.text(&text).map_err(|e| e.to_string())
         })();
@@ -505,18 +468,6 @@ fn run_macos_text_input(app: &AppHandle, text: &str) -> Result<(), String> {
         .map_err(|e| format!("Failed to receive macOS text insertion result: {}", e))?
 }
 
-#[cfg(target_os = "macos")]
-fn release_common_modifiers(enigo: &mut impl enigo::Keyboard) -> Result<(), String> {
-    use enigo::{Direction, Key};
-
-    for key in [Key::Meta, Key::Shift, Key::Control, Key::Alt] {
-        enigo
-            .key(key, Direction::Release)
-            .map_err(|e| e.to_string())?;
-    }
-
-    Ok(())
-}
 
 #[cfg(target_os = "macos")]
 fn cfstring(value: &str) -> Result<CFStringRef, String> {

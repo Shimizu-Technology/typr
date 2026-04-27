@@ -10,20 +10,25 @@ fn log_path() -> PathBuf {
         .join("debug.log")
 }
 
-fn write_line(level: &str, message: &str) {
-    let path = log_path();
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
+fn fallback_log_path() -> PathBuf {
+    std::env::temp_dir().join("typr-debug.log")
+}
 
+fn write_line(level: &str, message: &str) {
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_secs())
         .unwrap_or_default();
     let line = format!("[{}] {} {}\n", timestamp, level, message);
 
-    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
-        let _ = file.write_all(line.as_bytes());
+    for path in [log_path(), fallback_log_path()] {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+
+        if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
+            let _ = file.write_all(line.as_bytes());
+        }
     }
 }
 
@@ -41,12 +46,22 @@ pub fn debug_log_path() -> PathBuf {
     log_path()
 }
 
+pub fn fallback_debug_log_path() -> PathBuf {
+    fallback_log_path()
+}
+
 pub fn init() {
-    let path = log_path();
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+    for path in [log_path(), fallback_log_path()] {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+
+        let _ = OpenOptions::new().create(true).append(true).open(&path);
     }
 
-    let _ = OpenOptions::new().create(true).append(true).open(&path);
-    info(&format!("[Typr] Debug log initialized at {}", path.display()));
+    info(&format!(
+        "[Typr] Debug logs initialized at {} and {}",
+        log_path().display(),
+        fallback_log_path().display()
+    ));
 }

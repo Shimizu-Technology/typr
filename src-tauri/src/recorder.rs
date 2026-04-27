@@ -8,7 +8,7 @@ use crate::cleanup::cleanup_text;
 use crate::context::capture_selected_text;
 use crate::history::append_history_entry;
 use crate::history::build_history_entry;
-use crate::paste::paste_text;
+use crate::paste::{paste_text, TextDeliveryResult};
 use crate::settings::Settings;
 use crate::transform::apply_text_transform;
 
@@ -42,6 +42,11 @@ fn update_overlay(app: &AppHandle, state: &RecordingState) {
 pub struct Recorder {
     state: Arc<Mutex<RecordingState>>,
     audio_recorder: Arc<Mutex<AudioRecorder>>,
+}
+
+pub struct TranscriptionResult {
+    pub final_text: String,
+    pub delivery: Option<TextDeliveryResult>,
 }
 
 struct RecordingStateResetGuard {
@@ -112,7 +117,7 @@ impl Recorder {
         app: &AppHandle,
         settings: &Settings,
         app_dir: &PathBuf,
-    ) -> Result<String, String> {
+    ) -> Result<TranscriptionResult, String> {
         // Stop recording
         {
             let mut state = self.state.lock().unwrap();
@@ -164,11 +169,16 @@ impl Recorder {
         }
 
         // Auto-paste
-        if !final_text.is_empty() {
-            paste_text(app, &final_text)?;
-        }
+        let delivery = if !final_text.is_empty() {
+            Some(paste_text(app, &final_text)?)
+        } else {
+            None
+        };
 
-        Ok(final_text)
+        Ok(TranscriptionResult {
+            final_text,
+            delivery,
+        })
     }
 }
 

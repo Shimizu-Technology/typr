@@ -8,6 +8,13 @@ pub struct PastePermissionStatus {
     pub detail: String,
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextDeliveryResult {
+    pub delivered_to_cursor: bool,
+    pub detail: String,
+}
+
 #[cfg(target_os = "macos")]
 #[link(name = "ApplicationServices", kind = "framework")]
 unsafe extern "C" {
@@ -55,7 +62,7 @@ pub fn check_paste_permission_status() -> PastePermissionStatus {
     }
 }
 
-pub fn paste_text(app: &AppHandle, text: &str) -> Result<(), String> {
+pub fn paste_text(app: &AppHandle, text: &str) -> Result<TextDeliveryResult, String> {
     // Set clipboard (arboard is thread-safe)
     let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
     clipboard.set_text(text).map_err(|e| e.to_string())?;
@@ -63,10 +70,14 @@ pub fn paste_text(app: &AppHandle, text: &str) -> Result<(), String> {
     // Small delay to ensure clipboard is set
     std::thread::sleep(std::time::Duration::from_millis(50));
 
+    let mut paste_error: Option<String> = None;
+
     // Simulate Cmd+V natively on the main thread.
     #[cfg(target_os = "macos")]
     {
-        run_macos_shortcut(app, 'v').map_err(|err| format!("Paste automation failed: {}", err))?;
+        if let Err(err) = run_macos_shortcut(app, 'v') {
+            paste_error = Some(format!("Paste automation failed: {}", err));
+        }
     }
 
     #[cfg(target_os = "windows")]
@@ -85,18 +96,31 @@ pub fn paste_text(app: &AppHandle, text: &str) -> Result<(), String> {
 
         match (click_result, release_result) {
             (Err(click_err), Err(release_err)) => {
-                return Err(format!(
+                paste_error = Some(format!(
                     "Paste keypress failed: {}. Also failed to release Control: {}",
                     click_err, release_err
                 ));
             }
-            (Err(click_err), Ok(())) => return Err(click_err),
-            (Ok(()), Err(release_err)) => return Err(release_err),
+            (Err(click_err), Ok(())) => paste_error = Some(click_err),
+            (Ok(()), Err(release_err)) => paste_error = Some(release_err),
             (Ok(()), Ok(())) => {}
         }
     }
 
-    Ok(())
+    if let Some(err) = paste_error {
+        return Ok(TextDeliveryResult {
+            delivered_to_cursor: false,
+            detail: format!(
+                "Typr copied the text to your clipboard, but could not inject it at the cursor: {}",
+                err
+            ),
+        });
+    }
+
+    Ok(TextDeliveryResult {
+        delivered_to_cursor: true,
+        detail: "Typr inserted the text at the active cursor and left the same text on your clipboard.".to_string(),
+    })
 }
 
 #[cfg(target_os = "macos")]

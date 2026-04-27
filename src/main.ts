@@ -57,6 +57,20 @@ interface AppFeedback {
   detail: string;
 }
 
+interface TextDeliveryResult {
+  deliveredToCursor: boolean;
+  detail: string;
+}
+
+interface HistoryPasteResponse {
+  delivery: TextDeliveryResult;
+}
+
+interface ReprocessHistoryResponse {
+  entry: HistoryEntry;
+  delivery?: TextDeliveryResult | null;
+}
+
 interface DownloadProgress {
   downloaded: number;
   total: number;
@@ -210,28 +224,6 @@ function hideFeedback() {
 
 function toErrorDetail(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function parseReprocessFailure(error: unknown): {
-  level: "error" | "warning";
-  title: string;
-  detail: string;
-} {
-  const detail = toErrorDetail(error);
-
-  if (detail.startsWith("REPROCESS_PASTE_FAILED:")) {
-    return {
-      level: "warning",
-      title: "History entry updated, but paste failed",
-      detail: detail.replace("REPROCESS_PASTE_FAILED:", "").trim(),
-    };
-  }
-
-  return {
-    level: "error",
-    title: "History action failed",
-    detail,
-  };
 }
 
 function runAsyncAction(
@@ -860,19 +852,31 @@ historyList.addEventListener("click", async (event) => {
 
   try {
     if (action === "paste") {
-      await invoke("paste_history_entry", { id });
+      const response = await invoke<HistoryPasteResponse>("paste_history_entry", {
+        id,
+      });
       showFeedback({
-        level: "success",
-        title: "History entry pasted",
-        detail: "Typr copied the saved output and attempted to paste it into the active app.",
+        level: response.delivery.deliveredToCursor ? "success" : "warning",
+        title: response.delivery.deliveredToCursor
+          ? "History entry inserted"
+          : "History entry copied to clipboard",
+        detail: response.delivery.detail,
       });
     } else if (action === "reprocess") {
-      await invoke("reprocess_history_entry", { id });
+      const response = await invoke<ReprocessHistoryResponse>(
+        "reprocess_history_entry",
+        { id },
+      );
       await loadHistoryEntries();
       showFeedback({
-        level: "success",
+        level:
+          response.delivery && !response.delivery.deliveredToCursor
+            ? "warning"
+            : "success",
         title: "History entry reprocessed",
-        detail: "Typr regenerated that transcript using your current mode and provider settings.",
+        detail:
+          response.delivery?.detail ??
+          "Typr regenerated that transcript using your current mode and provider settings.",
       });
     } else if (action === "delete") {
       await invoke("delete_history_entry", { id });
@@ -884,16 +888,6 @@ historyList.addEventListener("click", async (event) => {
       });
     }
   } catch (error) {
-    if (action === "reprocess") {
-      const feedback = parseReprocessFailure(error);
-      try {
-        await loadHistoryEntries();
-      } catch (reloadError) {
-        feedback.detail = `${feedback.detail} Typr also could not refresh local history: ${toErrorDetail(reloadError)}`;
-      }
-      showFeedback(feedback);
-      return;
-    }
     showFeedback({
       level: "error",
       title: "History action failed",

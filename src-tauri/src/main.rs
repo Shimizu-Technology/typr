@@ -10,8 +10,8 @@ use typr_lib::audio;
 use typr_lib::downloader;
 use typr_lib::history;
 use typr_lib::history::HistoryEntry;
-use typr_lib::paste::{check_paste_permission_status, paste_text};
-use typr_lib::recorder::{Recorder, RecordingState};
+use typr_lib::paste::{check_paste_permission_status, paste_text, TextDeliveryResult};
+use typr_lib::recorder::{Recorder, RecordingState, TranscriptionResult};
 use typr_lib::secrets;
 use typr_lib::settings::Settings;
 use typr_lib::transcribe_local;
@@ -21,6 +21,7 @@ struct AppState {
     recorder: Recorder,
     settings: Mutex<Settings>,
     registered_hotkey: Mutex<String>,
+    paste_verified_this_session: Mutex<bool>,
     app_dir: PathBuf,
 }
 
@@ -63,6 +64,19 @@ struct AppFeedback {
     level: String,
     title: String,
     detail: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HistoryPasteResponse {
+    delivery: TextDeliveryResult,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReprocessHistoryResponse {
+    entry: HistoryEntry,
+    delivery: Option<TextDeliveryResult>,
 }
 
 fn get_app_dir() -> PathBuf {
@@ -139,6 +153,33 @@ fn emit_error_feedback(app: &tauri::AppHandle, detail: &str) {
     };
 
     emit_feedback(app, "error", title, normalized_detail.as_str());
+}
+
+fn mark_paste_verified(state: &AppState) {
+    *state.paste_verified_this_session.lock().unwrap() = true;
+}
+
+fn emit_delivery_feedback(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    success_title: &str,
+    result: &TranscriptionResult,
+) {
+    if let Some(delivery) = &result.delivery {
+        if delivery.delivered_to_cursor {
+            mark_paste_verified(state);
+            emit_feedback(app, "success", success_title, &delivery.detail);
+        } else {
+            emit_feedback(app, "warning", "Copied to clipboard", &delivery.detail);
+        }
+    } else if !result.final_text.trim().is_empty() {
+        emit_feedback(
+            app,
+            "success",
+            success_title,
+            "Typr transcribed your audio. There was no text to inject, so nothing was pasted.",
+        );
+    }
 }
 
 #[tauri::command]
@@ -225,9 +266,10 @@ fn clear_provider_secret(kind: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn get_setup_status() -> SetupStatus {
+fn get_setup_status(state: State<AppState>) -> SetupStatus {
     let audio_status = audio::audio_input_status();
     let paste_status = check_paste_permission_status();
+    let paste_verified_this_session = *state.paste_verified_this_session.lock().unwrap();
 
     let mut checks = vec![SetupCheck {
         title: "Microphone devices".to_string(),
@@ -255,8 +297,12 @@ fn get_setup_status() -> SetupStatus {
 
     checks.push(SetupCheck {
         title: "Paste automation".to_string(),
-        ok: paste_status.ready,
-        detail: paste_status.detail,
+        ok: paste_status.ready || paste_verified_this_session,
+        detail: if paste_verified_this_session && !paste_status.ready {
+            "Typr successfully inserted text into another app during this session. Accessibility detection can be conservative in dev mode.".to_string()
+        } else {
+            paste_status.detail
+        },
     });
 
     let summary = if checks.iter().all(|check| check.ok) {
@@ -306,9 +352,13 @@ fn paste_history_entry(
     app: tauri::AppHandle,
     state: State<AppState>,
     id: String,
-) -> Result<(), String> {
+) -> Result<HistoryPasteResponse, String> {
     let entry = history::get_history_entry(&state.app_dir, &id)?;
-    paste_text(&app, &entry.final_text)
+    let delivery = paste_text(&app, &entry.final_text)?;
+    if delivery.delivered_to_cursor {
+        mark_paste_verified(state.inner());
+    }
+    Ok(HistoryPasteResponse { delivery })
 }
 
 #[tauri::command]
@@ -316,7 +366,7 @@ async fn reprocess_history_entry(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
     id: String,
-) -> Result<HistoryEntry, String> {
+) -> Result<ReprocessHistoryResponse, String> {
     let settings = state.settings.lock().unwrap().clone();
     let mut entry = history::get_history_entry(&state.app_dir, &id)?;
 
@@ -337,16 +387,17 @@ async fn reprocess_history_entry(
 
     history::update_history_entry(&state.app_dir, &entry)?;
 
-    if !next_text.is_empty() {
-        if let Err(err) = paste_text(&app, &next_text) {
-            return Err(format!(
-                "REPROCESS_PASTE_FAILED: History entry was updated and saved, but paste failed: {}",
-                err
-            ));
+    let delivery = if !next_text.is_empty() {
+        let delivery = paste_text(&app, &next_text)?;
+        if delivery.delivered_to_cursor {
+            mark_paste_verified(state.inner());
         }
-    }
+        Some(delivery)
+    } else {
+        None
+    };
 
-    Ok(entry)
+    Ok(ReprocessHistoryResponse { entry, delivery })
 }
 
 #[tauri::command]
@@ -532,15 +583,13 @@ async fn toggle_recording(
 ) -> Result<String, String> {
     match do_toggle_recording(&app, &state).await {
         Ok(result) => {
-            if result != "recording" && !result.trim().is_empty() {
-                emit_feedback(
-                    &app,
-                    "success",
-                    "Dictation complete",
-                    "Typr transcribed your audio and attempted to paste it into the active app.",
-                );
+            match result {
+                ToggleOutcome::RecordingStarted => Ok("recording".to_string()),
+                ToggleOutcome::Completed(result) => {
+                    emit_delivery_feedback(&app, state.inner(), "Dictation complete", &result);
+                    Ok(result.final_text)
+                }
             }
-            Ok(result)
         }
         Err(err) => {
             emit_error_feedback(&app, &err);
@@ -550,13 +599,21 @@ async fn toggle_recording(
 }
 
 /// Shared logic for toggle recording, used by both the Tauri command and hotkey handler.
-async fn do_toggle_recording(app: &tauri::AppHandle, state: &AppState) -> Result<String, String> {
+enum ToggleOutcome {
+    RecordingStarted,
+    Completed(TranscriptionResult),
+}
+
+async fn do_toggle_recording(
+    app: &tauri::AppHandle,
+    state: &AppState,
+) -> Result<ToggleOutcome, String> {
     let current_state = state.recorder.get_state();
     match current_state {
         RecordingState::Ready => {
             let mic = state.settings.lock().unwrap().microphone.clone();
             state.recorder.start_recording(app, &mic)?;
-            Ok("recording".to_string())
+            Ok(ToggleOutcome::RecordingStarted)
         }
         RecordingState::Recording => {
             let settings = state.settings.lock().unwrap().clone();
@@ -564,7 +621,7 @@ async fn do_toggle_recording(app: &tauri::AppHandle, state: &AppState) -> Result
                 .recorder
                 .stop_and_transcribe(app, &settings, &state.app_dir)
                 .await?;
-            Ok(result)
+            Ok(ToggleOutcome::Completed(result))
         }
         RecordingState::Transcribing => Err("Currently transcribing, please wait".to_string()),
     }
@@ -581,13 +638,20 @@ fn handle_shortcut_event(app: tauri::AppHandle, shortcut_state: ShortcutState) {
                 match mode.as_str() {
                     "toggle" => match do_toggle_recording(&app, state.inner()).await {
                         Ok(result) => {
-                            println!("[Typr] Toggle result: {}", result);
-                            if result != "recording" && !result.trim().is_empty() {
-                                emit_feedback(
+                            match &result {
+                                ToggleOutcome::RecordingStarted => {
+                                    println!("[Typr] Toggle result: recording");
+                                }
+                                ToggleOutcome::Completed(done) => {
+                                    println!("[Typr] Toggle result: {}", done.final_text);
+                                }
+                            }
+                            if let ToggleOutcome::Completed(done) = result {
+                                emit_delivery_feedback(
                                     &app,
-                                    "success",
+                                    state.inner(),
                                     "Dictation complete",
-                                    "Typr transcribed your audio and attempted to paste it into the active app.",
+                                    &done,
                                 );
                             }
                         }
@@ -626,15 +690,13 @@ fn handle_shortcut_event(app: tauri::AppHandle, shortcut_state: ShortcutState) {
                             .await
                         {
                             Ok(result) => {
-                                println!("[Typr] Transcription: {}", result);
-                                if !result.trim().is_empty() {
-                                    emit_feedback(
-                                        &app,
-                                        "success",
-                                        "Push-to-talk complete",
-                                        "Typr transcribed your audio and attempted to paste it into the active app.",
-                                    );
-                                }
+                                println!("[Typr] Transcription: {}", result.final_text);
+                                emit_delivery_feedback(
+                                    &app,
+                                    state.inner(),
+                                    "Push-to-talk complete",
+                                    &result,
+                                );
                             }
                             Err(e) => {
                                 eprintln!("[Typr] Transcription error: {}", e);
@@ -722,6 +784,7 @@ fn main() {
             recorder: Recorder::new(),
             settings: Mutex::new(settings),
             registered_hotkey: Mutex::new(String::new()),
+            paste_verified_this_session: Mutex::new(false),
             app_dir,
         })
         .invoke_handler(tauri::generate_handler![

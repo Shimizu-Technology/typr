@@ -8,47 +8,30 @@ pub struct PastePermissionStatus {
     pub detail: String,
 }
 
+#[cfg(target_os = "macos")]
+#[link(name = "ApplicationServices", kind = "framework")]
+unsafe extern "C" {
+    fn AXIsProcessTrusted() -> bool;
+}
+
 pub fn check_paste_permission_status() -> PastePermissionStatus {
     #[cfg(target_os = "macos")]
     {
-        match std::process::Command::new("osascript")
-            .args([
-                "-e",
-                r#"tell application "System Events" to return UI elements enabled"#,
-            ])
-            .output()
-        {
-            Ok(output) if output.status.success() => {
-                let stdout = String::from_utf8_lossy(&output.stdout).trim().to_lowercase();
-                if stdout == "true" {
-                    PastePermissionStatus {
-                        supported: true,
-                        ready: true,
-                        detail:
-                            "Accessibility automation looks available for selection capture and paste injection."
-                                .to_string(),
-                    }
-                } else {
-                    PastePermissionStatus {
-                        supported: true,
-                        ready: false,
-                        detail: "Paste automation is blocked. Enable Accessibility access for Typr before it can copy selections or paste text into other apps.".to_string(),
-                    }
-                }
+        let trusted = unsafe { AXIsProcessTrusted() };
+        if trusted {
+            PastePermissionStatus {
+                supported: true,
+                ready: true,
+                detail:
+                    "Accessibility automation looks available for selection capture and paste injection."
+                        .to_string(),
             }
-            Ok(output) => PastePermissionStatus {
+        } else {
+            PastePermissionStatus {
                 supported: true,
                 ready: false,
-                detail: format!(
-                    "Paste automation is blocked. macOS usually needs Accessibility access for Typr before it can copy selections or paste text. {}",
-                    String::from_utf8_lossy(&output.stderr).trim()
-                ),
-            },
-            Err(err) => PastePermissionStatus {
-                supported: true,
-                ready: false,
-                detail: format!("Failed to run paste permission check: {}", err),
-            },
+                detail: "Paste automation is blocked. Enable Accessibility access for Typr before it can copy selections or paste text into other apps.".to_string(),
+            }
         }
     }
 

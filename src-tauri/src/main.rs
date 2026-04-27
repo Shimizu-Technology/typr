@@ -354,7 +354,7 @@ fn paste_history_entry(
     id: String,
 ) -> Result<HistoryPasteResponse, String> {
     let entry = history::get_history_entry(&state.app_dir, &id)?;
-    let delivery = paste_text(&app, &entry.final_text)?;
+    let delivery = paste_text(&app, &entry.final_text, None)?;
     if delivery.delivered_to_cursor {
         mark_paste_verified(state.inner());
     }
@@ -388,7 +388,7 @@ async fn reprocess_history_entry(
     history::update_history_entry(&state.app_dir, &entry)?;
 
     let delivery = if !next_text.is_empty() {
-        let delivery = paste_text(&app, &next_text)?;
+        let delivery = paste_text(&app, &next_text, None)?;
         if delivery.delivered_to_cursor {
             mark_paste_verified(state.inner());
         }

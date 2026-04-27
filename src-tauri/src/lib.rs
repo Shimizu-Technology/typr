@@ -3,6 +3,7 @@ pub mod audio;
 pub mod cleanup;
 pub mod context;
 pub mod downloader;
+pub mod focus;
 pub mod history;
 pub mod paste;
 pub mod recorder;

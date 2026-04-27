@@ -6,6 +6,7 @@ use crate::asr::build_asr_provider;
 use crate::audio::AudioRecorder;
 use crate::cleanup::cleanup_text;
 use crate::context::capture_selected_text;
+use crate::focus::capture_focus_target;
 use crate::history::append_history_entry;
 use crate::history::build_history_entry;
 use crate::paste::{paste_text, TextDeliveryResult};
@@ -42,6 +43,7 @@ fn update_overlay(app: &AppHandle, state: &RecordingState) {
 pub struct Recorder {
     state: Arc<Mutex<RecordingState>>,
     audio_recorder: Arc<Mutex<AudioRecorder>>,
+    focus_target: Arc<Mutex<Option<String>>>,
 }
 
 pub struct TranscriptionResult {
@@ -90,6 +92,7 @@ impl Recorder {
         Self {
             state: Arc::new(Mutex::new(RecordingState::Ready)),
             audio_recorder: Arc::new(Mutex::new(AudioRecorder::new())),
+            focus_target: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -105,6 +108,7 @@ impl Recorder {
 
         let mut recorder = self.audio_recorder.lock().unwrap();
         recorder.start(mic_name)?;
+        *self.focus_target.lock().unwrap() = capture_focus_target();
 
         *state = RecordingState::Recording;
         let _ = app.emit("recording-state", RecordingState::Recording);
@@ -169,8 +173,10 @@ impl Recorder {
         }
 
         // Auto-paste
+        let focus_target = self.focus_target.lock().unwrap().take();
+
         let delivery = if !final_text.is_empty() {
-            Some(paste_text(app, &final_text)?)
+            Some(paste_text(app, &final_text, focus_target.as_deref())?)
         } else {
             None
         };

@@ -89,14 +89,21 @@ pub fn paste_text(
         }
     }
 
-    let mut paste_error: Option<String> = None;
+    let mut delivery_error: Option<String> = None;
 
-    // Simulate Cmd+V natively on the main thread.
+    // On macOS, prefer direct text insertion at the focused cursor.
     #[cfg(target_os = "macos")]
     {
-        println!("[Typr] Triggering native macOS paste shortcut");
-        if let Err(err) = run_macos_shortcut(app, 'v') {
-            paste_error = Some(format!("Paste automation failed: {}", err));
+        println!("[Typr] Triggering native macOS text insertion");
+        if let Err(err) = run_macos_text_input(app, text) {
+            eprintln!("[Typr] Direct text insertion failed: {}", err);
+            println!("[Typr] Falling back to native macOS paste shortcut");
+            if let Err(paste_err) = run_macos_shortcut(app, 'v') {
+                delivery_error = Some(format!(
+                    "Direct text insertion failed: {}. Paste automation also failed: {}",
+                    err, paste_err
+                ));
+            }
         }
     }
 
@@ -116,18 +123,18 @@ pub fn paste_text(
 
         match (click_result, release_result) {
             (Err(click_err), Err(release_err)) => {
-                paste_error = Some(format!(
+                delivery_error = Some(format!(
                     "Paste keypress failed: {}. Also failed to release Control: {}",
                     click_err, release_err
                 ));
             }
-            (Err(click_err), Ok(())) => paste_error = Some(click_err),
-            (Ok(()), Err(release_err)) => paste_error = Some(release_err),
+            (Err(click_err), Ok(())) => delivery_error = Some(click_err),
+            (Ok(()), Err(release_err)) => delivery_error = Some(release_err),
             (Ok(()), Ok(())) => {}
         }
     }
 
-    if let Some(err) = paste_error {
+    if let Some(err) = delivery_error {
         return Ok(TextDeliveryResult {
             delivered_to_cursor: false,
             detail: format!(
@@ -179,4 +186,25 @@ fn run_macos_shortcut(app: &AppHandle, key: char) -> Result<(), String> {
 
     rx.recv()
         .map_err(|e| format!("Failed to receive macOS paste shortcut result: {}", e))?
+}
+
+#[cfg(target_os = "macos")]
+fn run_macos_text_input(app: &AppHandle, text: &str) -> Result<(), String> {
+    use enigo::{Enigo, Keyboard, Settings};
+    use std::sync::mpsc;
+
+    let text = text.to_string();
+    let (tx, rx) = mpsc::channel();
+    app.run_on_main_thread(move || {
+        let result = (|| -> Result<(), String> {
+            let mut enigo = Enigo::new(&Settings::default()).map_err(|e| e.to_string())?;
+            enigo.text(&text).map_err(|e| e.to_string())
+        })();
+
+        let _ = tx.send(result);
+    })
+    .map_err(|e| format!("Failed to schedule macOS text insertion: {}", e))?;
+
+    rx.recv()
+        .map_err(|e| format!("Failed to receive macOS text insertion result: {}", e))?
 }

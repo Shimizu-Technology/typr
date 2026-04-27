@@ -1,5 +1,5 @@
 use tauri::AppHandle;
-use crate::focus::restore_focus_target;
+use crate::focus::{restore_focus_target, FocusTarget};
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -66,7 +66,7 @@ pub fn check_paste_permission_status() -> PastePermissionStatus {
 pub fn paste_text(
     app: &AppHandle,
     text: &str,
-    focus_target: Option<&str>,
+    focus_target: Option<&FocusTarget>,
 ) -> Result<TextDeliveryResult, String> {
     // Set clipboard (arboard is thread-safe)
     let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
@@ -75,11 +75,14 @@ pub fn paste_text(
     // Small delay to ensure clipboard is set
     std::thread::sleep(std::time::Duration::from_millis(50));
 
-    if let Some(bundle_id) = focus_target {
+    if let Some(focus_target) = focus_target {
         #[cfg(target_os = "macos")]
         {
-            if let Err(err) = restore_focus_target(bundle_id) {
-                eprintln!("[Typr] Focus restore failed for {}: {}", bundle_id, err);
+            if let Err(err) = restore_focus_target(focus_target) {
+                eprintln!(
+                    "[Typr] Focus restore failed for {} (pid={}): {}",
+                    focus_target.bundle_id, focus_target.pid, err
+                );
             } else {
                 std::thread::sleep(std::time::Duration::from_millis(120));
             }
@@ -91,6 +94,7 @@ pub fn paste_text(
     // Simulate Cmd+V natively on the main thread.
     #[cfg(target_os = "macos")]
     {
+        println!("[Typr] Triggering native macOS paste shortcut");
         if let Err(err) = run_macos_shortcut(app, 'v') {
             paste_error = Some(format!("Paste automation failed: {}", err));
         }

@@ -1,46 +1,74 @@
 #[cfg(target_os = "macos")]
-use objc2_app_kit::NSWorkspace;
+use objc2_app_kit::{NSApplicationActivationOptions, NSRunningApplication, NSWorkspace};
 
 const TYPR_BUNDLE_ID: &str = "com.typr.app";
 
-#[cfg(target_os = "macos")]
-pub fn capture_focus_target() -> Option<String> {
-    let workspace = NSWorkspace::sharedWorkspace();
-    let app = workspace.frontmostApplication()?;
-    let bundle_id = app.bundleIdentifier()?;
-    let bundle_id = bundle_id.to_string();
-
-    if bundle_id == TYPR_BUNDLE_ID {
-        None
-    } else {
-        Some(bundle_id)
-    }
+#[derive(Debug, Clone)]
+pub struct FocusTarget {
+    pub bundle_id: String,
+    #[cfg(target_os = "macos")]
+    pub pid: i32,
 }
 
 #[cfg(target_os = "macos")]
-pub fn restore_focus_target(bundle_id: &str) -> Result<(), String> {
-    let status = std::process::Command::new("open")
-        .arg("-b")
-        .arg(bundle_id)
-        .status()
-        .map_err(|err| format!("Failed to relaunch focus target {}: {}", bundle_id, err))?;
+pub fn capture_focus_target() -> Option<FocusTarget> {
+    let workspace = NSWorkspace::sharedWorkspace();
+    let app = workspace.frontmostApplication()?;
+    let bundle_id = app.bundleIdentifier()?.to_string();
+    let pid = app.processIdentifier();
 
-    if status.success() {
+    if bundle_id == TYPR_BUNDLE_ID || pid <= 0 {
+        return None;
+    }
+
+    let app_name = app
+        .localizedName()
+        .map(|name| name.to_string())
+        .unwrap_or_else(|| bundle_id.clone());
+    println!(
+        "[Typr] Captured focus target: {} ({}) pid={}",
+        app_name, bundle_id, pid
+    );
+
+    Some(FocusTarget { bundle_id, pid })
+}
+
+#[cfg(target_os = "macos")]
+#[allow(deprecated)]
+pub fn restore_focus_target(target: &FocusTarget) -> Result<(), String> {
+    let Some(app) = NSRunningApplication::runningApplicationWithProcessIdentifier(target.pid)
+    else {
+        return Err(format!(
+            "No running application found for pid {} ({})",
+            target.pid, target.bundle_id
+        ));
+    };
+
+    let unhide_ok = app.unhide();
+    let activate_ok =
+        app.activateWithOptions(NSApplicationActivationOptions::ActivateIgnoringOtherApps);
+
+    println!(
+        "[Typr] Restore focus target pid={} bundle={} unhide_ok={} activate_ok={}",
+        target.pid, target.bundle_id, unhide_ok, activate_ok
+    );
+
+    if activate_ok {
         Ok(())
     } else {
         Err(format!(
-            "open -b {} exited with status {}",
-            bundle_id, status
+            "macOS denied activation for pid {} ({})",
+            target.pid, target.bundle_id
         ))
     }
 }
 
 #[cfg(not(target_os = "macos"))]
-pub fn capture_focus_target() -> Option<String> {
+pub fn capture_focus_target() -> Option<FocusTarget> {
     None
 }
 
 #[cfg(not(target_os = "macos"))]
-pub fn restore_focus_target(_bundle_id: &str) -> Result<(), String> {
+pub fn restore_focus_target(_target: &FocusTarget) -> Result<(), String> {
     Ok(())
 }

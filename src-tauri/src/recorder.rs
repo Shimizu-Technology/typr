@@ -133,9 +133,9 @@ impl Recorder {
             update_overlay(app, &RecordingState::Transcribing);
         }
 
-        let _state_guard = RecordingStateResetGuard::new(self.state.clone(), app.clone());
+        let state_guard = RecordingStateResetGuard::new(self.state.clone(), app.clone());
         let temp_path = app_dir.join("temp_recording.wav");
-        let _temp_file_guard = TempFileGuard::new(temp_path.clone());
+        let temp_file_guard = TempFileGuard::new(temp_path.clone());
 
         // Save audio
         {
@@ -181,10 +181,16 @@ impl Recorder {
             None
         };
 
-        Ok(TranscriptionResult {
+        let result = TranscriptionResult {
             final_text,
             delivery,
-        })
+        };
+
+        // Keep the guards alive across the async transcription pipeline.
+        drop(temp_file_guard);
+        drop(state_guard);
+
+        Ok(result)
     }
 }
 

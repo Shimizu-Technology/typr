@@ -204,8 +204,9 @@ fn run_macos_accessibility_insert(
     text: &str,
     focus_target: Option<&FocusTarget>,
 ) -> Result<(), String> {
+    let mut accessibility_bootstrap = None;
     if let Some(target) = focus_target {
-        enable_manual_accessibility(target)?;
+        accessibility_bootstrap = enable_target_accessibility(target);
     }
 
     let focused_element = unsafe {
@@ -220,16 +221,22 @@ fn run_macos_accessibility_insert(
         let focused_attr = cfstring("AXFocusedUIElement")?;
         let mut focused_value: CFTypeRef = std::ptr::null();
         let focused_result = if let Some(app_element) = app_element {
-            let result = AXUIElementCopyAttributeValue(app_element, focused_attr, &mut focused_value);
-            println!(
-                "[Typr] AXFocusedUIElement via target app pid={} result={}",
-                focus_target.map(|target| target.pid).unwrap_or_default(),
-                result
+            let (result, value) = copy_focused_element_with_retry(
+                app_element,
+                focus_target.expect("app element implies focus target").pid,
+                focused_attr,
             );
+            focused_value = value;
             if result == AX_SUCCESS && !focused_value.is_null() {
                 result
             } else {
-                AXUIElementCopyAttributeValue(system_wide, focused_attr, &mut focused_value)
+                let fallback_result =
+                    AXUIElementCopyAttributeValue(system_wide, focused_attr, &mut focused_value);
+                println!(
+                    "[Typr] AXFocusedUIElement via system-wide fallback result={}",
+                    fallback_result
+                );
+                fallback_result
             }
         } else {
             AXUIElementCopyAttributeValue(system_wide, focused_attr, &mut focused_value)
@@ -241,6 +248,9 @@ fn run_macos_accessibility_insert(
         }
 
         if focused_result != AX_SUCCESS || focused_value.is_null() {
+            if let Some(bootstrap_error) = accessibility_bootstrap {
+                eprintln!("[Typr] Accessibility bootstrap note: {}", bootstrap_error);
+            }
             return Err(format!(
                 "Could not read focused UI element (AXError={})",
                 focused_result
@@ -296,42 +306,94 @@ fn run_macos_accessibility_insert(
 }
 
 #[cfg(target_os = "macos")]
-fn enable_manual_accessibility(target: &FocusTarget) -> Result<(), String> {
-    if target.pid <= 0 {
-        return Ok(());
+fn copy_focused_element_with_retry(
+    app_element: AXUIElementRef,
+    pid: i32,
+    focused_attr: CFStringRef,
+) -> (AXError, CFTypeRef) {
+    let mut last_result = AX_SUCCESS;
+    let mut focused_value: CFTypeRef = std::ptr::null();
+
+    for attempt in 1..=20 {
+        focused_value = std::ptr::null();
+        last_result =
+            unsafe { AXUIElementCopyAttributeValue(app_element, focused_attr, &mut focused_value) };
+        println!(
+            "[Typr] AXFocusedUIElement via target app pid={} attempt={} result={} hasValue={}",
+            pid,
+            attempt,
+            last_result,
+            !focused_value.is_null()
+        );
+
+        if last_result == AX_SUCCESS && !focused_value.is_null() {
+            return (last_result, focused_value);
+        }
+
+        std::thread::sleep(std::time::Duration::from_millis(120));
     }
 
-    let manual_attr = cfstring("AXManualAccessibility")?;
+    (last_result, focused_value)
+}
+
+#[cfg(target_os = "macos")]
+fn enable_target_accessibility(target: &FocusTarget) -> Option<String> {
+    if target.pid <= 0 {
+        return None;
+    }
+
+    let manual_attr = match cfstring("AXManualAccessibility") {
+        Ok(value) => value,
+        Err(err) => return Some(err),
+    };
+    let enhanced_attr = match cfstring("AXEnhancedUserInterface") {
+        Ok(value) => value,
+        Err(err) => {
+            unsafe {
+                CFRelease(manual_attr);
+            }
+            return Some(err);
+        }
+    };
     let app_element = unsafe { AXUIElementCreateApplication(target.pid) };
     if app_element.is_null() {
         unsafe {
             CFRelease(manual_attr);
+            CFRelease(enhanced_attr);
         }
-        return Err(format!(
+        return Some(format!(
             "Could not create AX application element for pid {} ({})",
             target.pid, target.bundle_id
         ));
     }
 
-    let result =
+    let manual_result =
         unsafe { AXUIElementSetAttributeValue(app_element, manual_attr, kCFBooleanTrue) };
     println!(
         "[Typr] AXManualAccessibility enable pid={} bundle={} result={}",
-        target.pid, target.bundle_id, result
+        target.pid, target.bundle_id, manual_result
+    );
+    let enhanced_result =
+        unsafe { AXUIElementSetAttributeValue(app_element, enhanced_attr, kCFBooleanTrue) };
+    println!(
+        "[Typr] AXEnhancedUserInterface enable pid={} bundle={} result={}",
+        target.pid, target.bundle_id, enhanced_result
     );
 
     unsafe {
         CFRelease(manual_attr);
+        CFRelease(enhanced_attr);
         CFRelease(app_element as CFTypeRef);
     }
 
-    if result == AX_SUCCESS {
-        std::thread::sleep(std::time::Duration::from_millis(120));
-        Ok(())
+    if manual_result == AX_SUCCESS || enhanced_result == AX_SUCCESS {
+        // Chromium/Electron can enable native accessibility asynchronously after this signal.
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        None
     } else {
-        Err(format!(
-            "AXManualAccessibility enable failed with AXError={}",
-            result
+        Some(format!(
+            "AXManualAccessibility result={}, AXEnhancedUserInterface result={}",
+            manual_result, enhanced_result
         ))
     }
 }

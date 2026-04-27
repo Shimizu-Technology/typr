@@ -40,3 +40,13 @@ pub fn error(message: &str) {
 pub fn debug_log_path() -> PathBuf {
     log_path()
 }
+
+pub fn init() {
+    let path = log_path();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
+    let _ = OpenOptions::new().create(true).append(true).open(&path);
+    info(&format!("[Typr] Debug log initialized at {}", path.display()));
+}

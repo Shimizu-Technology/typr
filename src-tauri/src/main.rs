@@ -10,6 +10,7 @@ use typr_lib::audio;
 use typr_lib::downloader;
 use typr_lib::history;
 use typr_lib::history::HistoryEntry;
+use typr_lib::logger;
 use typr_lib::paste::{check_paste_permission_status, paste_text, TextDeliveryResult};
 use typr_lib::recorder::{Recorder, RecordingState, TranscriptionResult};
 use typr_lib::secrets;
@@ -246,6 +247,11 @@ fn get_recording_state(state: State<AppState>) -> RecordingState {
 #[tauri::command]
 fn get_secret_status() -> Result<secrets::SecretStatus, String> {
     secrets::get_secret_status()
+}
+
+#[tauri::command]
+fn get_debug_log_path() -> String {
+    logger::debug_log_path().to_string_lossy().to_string()
 }
 
 #[tauri::command]
@@ -794,6 +800,7 @@ fn main() {
             list_microphones,
             get_recording_state,
             get_secret_status,
+            get_debug_log_path,
             set_provider_secret,
             clear_provider_secret,
             get_setup_status,

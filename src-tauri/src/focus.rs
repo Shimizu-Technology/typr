@@ -1,3 +1,4 @@
+use crate::logger;
 #[cfg(target_os = "macos")]
 use objc2_app_kit::{NSApplicationActivationOptions, NSRunningApplication, NSWorkspace};
 
@@ -26,10 +27,10 @@ pub fn capture_focus_target() -> Option<FocusTarget> {
         .localizedName()
         .map(|name| name.to_string())
         .unwrap_or_else(|| bundle_id.clone());
-    println!(
+    logger::info(&format!(
         "[Typr] Captured focus target: {} ({}) pid={}",
         app_name, bundle_id, pid
-    );
+    ));
 
     Some(FocusTarget {
         app_name,
@@ -53,10 +54,10 @@ pub fn restore_focus_target(target: &FocusTarget) -> Result<(), String> {
     let activate_ok =
         app.activateWithOptions(NSApplicationActivationOptions::ActivateIgnoringOtherApps);
 
-    println!(
+    logger::info(&format!(
         "[Typr] Restore focus target pid={} bundle={} unhide_ok={} activate_ok={}",
         target.pid, target.bundle_id, unhide_ok, activate_ok
-    );
+    ));
 
     if !activate_ok {
         Err(format!(
@@ -70,10 +71,10 @@ pub fn restore_focus_target(target: &FocusTarget) -> Result<(), String> {
                 continue;
             };
 
-            println!(
+            logger::info(&format!(
                 "[Typr] Focus check attempt {}: frontmost {} ({}) pid={}",
                 attempt, frontmost.app_name, frontmost.bundle_id, frontmost.pid
-            );
+            ));
 
             if frontmost.pid == target.pid {
                 return Ok(());

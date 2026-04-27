@@ -5,6 +5,7 @@ pub mod context;
 pub mod downloader;
 pub mod focus;
 pub mod history;
+pub mod logger;
 pub mod paste;
 pub mod recorder;
 pub mod secrets;

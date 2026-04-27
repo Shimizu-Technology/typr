@@ -1,5 +1,6 @@
 use tauri::AppHandle;
 use crate::focus::{restore_focus_target, FocusTarget};
+use crate::logger;
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -124,10 +125,10 @@ pub fn paste_text(
         #[cfg(target_os = "macos")]
         {
             if let Err(err) = restore_focus_target(focus_target) {
-                eprintln!(
+                logger::error(&format!(
                     "[Typr] Focus restore failed for {} (pid={}): {}",
                     focus_target.bundle_id, focus_target.pid, err
-                );
+                ));
             } else {
                 std::thread::sleep(std::time::Duration::from_millis(120));
             }
@@ -141,13 +142,13 @@ pub fn paste_text(
     // On macOS, prefer direct text insertion at the focused cursor.
     #[cfg(target_os = "macos")]
     {
-        println!("[Typr] Trying accessibility text insertion");
+        logger::info("[Typr] Trying accessibility text insertion");
         if let Err(ax_err) = run_macos_accessibility_insert(text, focus_target) {
-            eprintln!("[Typr] Accessibility text insertion failed: {}", ax_err);
-            println!("[Typr] Triggering native macOS text insertion");
+            logger::error(&format!("[Typr] Accessibility text insertion failed: {}", ax_err));
+            logger::info("[Typr] Triggering native macOS text insertion");
             if let Err(text_err) = run_macos_text_input(app, text) {
-                eprintln!("[Typr] Direct text insertion failed: {}", text_err);
-                println!("[Typr] Falling back to native macOS paste shortcut");
+                logger::error(&format!("[Typr] Direct text insertion failed: {}", text_err));
+                logger::info("[Typr] Falling back to native macOS paste shortcut");
                 attempted_fallback_injection = true;
                 if let Err(paste_err) = run_macos_shortcut(app, 'v') {
                     delivery_error = Some(format!(
@@ -253,10 +254,10 @@ fn run_macos_accessibility_insert(
             } else {
                 let fallback_result =
                     AXUIElementCopyAttributeValue(system_wide, focused_attr, &mut focused_value);
-                println!(
+                logger::info(&format!(
                     "[Typr] AXFocusedUIElement via system-wide fallback result={}",
                     fallback_result
-                );
+                ));
                 fallback_result
             }
         } else {
@@ -270,7 +271,7 @@ fn run_macos_accessibility_insert(
 
         if focused_result != AX_SUCCESS || focused_value.is_null() {
             if let Some(bootstrap_error) = accessibility_bootstrap {
-                eprintln!("[Typr] Accessibility bootstrap note: {}", bootstrap_error);
+                logger::error(&format!("[Typr] Accessibility bootstrap note: {}", bootstrap_error));
             }
             return Err(format!(
                 "Could not read focused UI element (AXError={})",
@@ -291,10 +292,10 @@ fn run_macos_accessibility_insert(
         )
     };
 
-    println!(
+    logger::info(&format!(
         "[Typr] AXSelectedText settable check result={} settable={}",
         selected_text_settable_result, selected_text_settable
-    );
+    ));
 
     if selected_text_settable_result == AX_SUCCESS && selected_text_settable != 0 {
         let replacement = cfstring(text)?;
@@ -308,7 +309,7 @@ fn run_macos_accessibility_insert(
         }
 
         if set_result == AX_SUCCESS {
-            println!("[Typr] Accessibility text insertion succeeded via AXSelectedText");
+            logger::info("[Typr] Accessibility text insertion succeeded via AXSelectedText");
             return Ok(());
         }
 
@@ -339,13 +340,13 @@ fn copy_focused_element_with_retry(
         focused_value = std::ptr::null();
         last_result =
             unsafe { AXUIElementCopyAttributeValue(app_element, focused_attr, &mut focused_value) };
-        println!(
+        logger::info(&format!(
             "[Typr] AXFocusedUIElement via target app pid={} attempt={} result={} hasValue={}",
             pid,
             attempt,
             last_result,
             !focused_value.is_null()
-        );
+        ));
 
         if last_result == AX_SUCCESS && !focused_value.is_null() {
             return (last_result, focused_value);
@@ -390,16 +391,16 @@ fn enable_target_accessibility(target: &FocusTarget) -> Option<String> {
 
     let manual_result =
         unsafe { AXUIElementSetAttributeValue(app_element, manual_attr, kCFBooleanTrue) };
-    println!(
+    logger::info(&format!(
         "[Typr] AXManualAccessibility enable pid={} bundle={} result={}",
         target.pid, target.bundle_id, manual_result
-    );
+    ));
     let enhanced_result =
         unsafe { AXUIElementSetAttributeValue(app_element, enhanced_attr, kCFBooleanTrue) };
-    println!(
+    logger::info(&format!(
         "[Typr] AXEnhancedUserInterface enable pid={} bundle={} result={}",
         target.pid, target.bundle_id, enhanced_result
-    );
+    ));
 
     unsafe {
         CFRelease(manual_attr);

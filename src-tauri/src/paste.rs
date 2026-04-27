@@ -145,19 +145,20 @@ pub fn paste_text(
         logger::info("[Typr] Trying accessibility text insertion");
         if let Err(ax_err) = run_macos_accessibility_insert(text, focus_target) {
             logger::error(&format!("[Typr] Accessibility text insertion failed: {}", ax_err));
-            logger::info("[Typr] Triggering native macOS text insertion");
-            if let Err(text_err) = run_macos_text_input(app, text) {
-                logger::error(&format!("[Typr] Direct text insertion failed: {}", text_err));
-                logger::info("[Typr] Falling back to native macOS paste shortcut");
-                attempted_fallback_injection = true;
-                if let Err(paste_err) = run_macos_shortcut(app, 'v') {
+            logger::info("[Typr] Triggering native macOS paste shortcut");
+            attempted_fallback_injection = true;
+            if let Err(paste_err) = run_macos_shortcut_with_retry(app, 'v', 3) {
+                logger::error(&format!("[Typr] Native paste shortcut failed: {}", paste_err));
+                logger::info("[Typr] Falling back to native macOS text insertion");
+                if let Err(text_err) = run_macos_text_input(app, text) {
+                    logger::error(&format!("[Typr] Direct text insertion failed: {}", text_err));
                     delivery_error = Some(format!(
-                        "Accessibility insertion failed: {}. Direct text insertion failed: {}. Paste automation also failed: {}",
-                        ax_err, text_err, paste_err
+                        "Accessibility insertion failed: {}. Paste shortcut failed: {}. Direct text insertion also failed: {}",
+                        ax_err, paste_err, text_err
                     ));
                 }
             } else {
-                attempted_fallback_injection = true;
+                logger::info("[Typr] Native macOS paste shortcut completed");
             }
         } else {
             verified_delivery = true;
@@ -429,6 +430,7 @@ fn run_macos_shortcut(app: &AppHandle, key: char) -> Result<(), String> {
     app.run_on_main_thread(move || {
         let result = (|| -> Result<(), String> {
             let mut enigo = Enigo::new(&Settings::default()).map_err(|e| e.to_string())?;
+            release_common_modifiers(&mut enigo)?;
             enigo
                 .key(Key::Meta, Direction::Press)
                 .map_err(|e| e.to_string())?;
@@ -459,6 +461,28 @@ fn run_macos_shortcut(app: &AppHandle, key: char) -> Result<(), String> {
 }
 
 #[cfg(target_os = "macos")]
+fn run_macos_shortcut_with_retry(app: &AppHandle, key: char, attempts: usize) -> Result<(), String> {
+    let mut last_error = None;
+
+    for attempt in 1..=attempts {
+        logger::info(&format!(
+            "[Typr] Native paste attempt {} of {}",
+            attempt, attempts
+        ));
+
+        match run_macos_shortcut(app, key) {
+            Ok(()) => return Ok(()),
+            Err(err) => {
+                last_error = Some(err);
+                std::thread::sleep(std::time::Duration::from_millis(120));
+            }
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| "Unknown macOS paste shortcut failure".to_string()))
+}
+
+#[cfg(target_os = "macos")]
 fn run_macos_text_input(app: &AppHandle, text: &str) -> Result<(), String> {
     use enigo::{Enigo, Keyboard, Settings};
     use std::sync::mpsc;
@@ -468,6 +492,8 @@ fn run_macos_text_input(app: &AppHandle, text: &str) -> Result<(), String> {
     app.run_on_main_thread(move || {
         let result = (|| -> Result<(), String> {
             let mut enigo = Enigo::new(&Settings::default()).map_err(|e| e.to_string())?;
+            release_common_modifiers(&mut enigo)?;
+            std::thread::sleep(std::time::Duration::from_millis(50));
             enigo.text(&text).map_err(|e| e.to_string())
         })();
 
@@ -477,6 +503,19 @@ fn run_macos_text_input(app: &AppHandle, text: &str) -> Result<(), String> {
 
     rx.recv()
         .map_err(|e| format!("Failed to receive macOS text insertion result: {}", e))?
+}
+
+#[cfg(target_os = "macos")]
+fn release_common_modifiers(enigo: &mut impl enigo::Keyboard) -> Result<(), String> {
+    use enigo::{Direction, Key};
+
+    for key in [Key::Meta, Key::Shift, Key::Control, Key::Alt] {
+        enigo
+            .key(key, Direction::Release)
+            .map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
 }
 
 #[cfg(target_os = "macos")]

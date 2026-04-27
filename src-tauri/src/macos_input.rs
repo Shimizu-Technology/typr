@@ -12,6 +12,9 @@ use std::sync::mpsc;
 use tauri::AppHandle;
 
 #[cfg(target_os = "macos")]
+const SHORTCUT_TAP_LOCATION: CGEventTapLocation = CGEventTapLocation::AnnotatedSession;
+
+#[cfg(target_os = "macos")]
 pub fn send_command_shortcut(app: &AppHandle, key: char) -> Result<(), String> {
     let keycode = shortcut_keycode(key)?;
     let (tx, rx) = mpsc::channel();
@@ -22,8 +25,8 @@ pub fn send_command_shortcut(app: &AppHandle, key: char) -> Result<(), String> {
             let source = CGEventSource::new(CGEventSourceStateID::CombinedSessionState)
                 .map_err(|err| format!("Failed creating CGEvent source: {:?}", err))?;
             logger::info(&format!(
-                "[Typr] Dispatching explicit macOS Command shortcut sequence for '{}'",
-                key
+                "[Typr] Dispatching explicit macOS Command shortcut sequence for '{}' via {:?}",
+                key, SHORTCUT_TAP_LOCATION
             ));
 
             let command_down = new_keyboard_event(
@@ -32,7 +35,7 @@ pub fn send_command_shortcut(app: &AppHandle, key: char) -> Result<(), String> {
                 true,
                 CGEventFlags::CGEventFlagCommand,
             )?;
-            command_down.post(CGEventTapLocation::HID);
+            command_down.post(SHORTCUT_TAP_LOCATION);
 
             std::thread::sleep(std::time::Duration::from_millis(12));
 
@@ -42,7 +45,7 @@ pub fn send_command_shortcut(app: &AppHandle, key: char) -> Result<(), String> {
                 true,
                 CGEventFlags::CGEventFlagCommand,
             )?;
-            key_down.post(CGEventTapLocation::HID);
+            key_down.post(SHORTCUT_TAP_LOCATION);
 
             std::thread::sleep(std::time::Duration::from_millis(12));
 
@@ -52,7 +55,7 @@ pub fn send_command_shortcut(app: &AppHandle, key: char) -> Result<(), String> {
                 false,
                 CGEventFlags::CGEventFlagCommand,
             )?;
-            key_up.post(CGEventTapLocation::HID);
+            key_up.post(SHORTCUT_TAP_LOCATION);
 
             std::thread::sleep(std::time::Duration::from_millis(12));
 
@@ -62,7 +65,7 @@ pub fn send_command_shortcut(app: &AppHandle, key: char) -> Result<(), String> {
                 false,
                 CGEventFlags::CGEventFlagNull,
             )?;
-            command_up.post(CGEventTapLocation::HID);
+            command_up.post(SHORTCUT_TAP_LOCATION);
 
             Ok(())
         })();

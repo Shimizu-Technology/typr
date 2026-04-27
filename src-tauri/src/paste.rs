@@ -20,7 +20,52 @@ pub struct TextDeliveryResult {
 #[link(name = "ApplicationServices", kind = "framework")]
 unsafe extern "C" {
     fn AXIsProcessTrusted() -> bool;
+    fn AXUIElementCreateApplication(pid: i32) -> AXUIElementRef;
+    fn AXUIElementCreateSystemWide() -> AXUIElementRef;
+    fn AXUIElementCopyAttributeValue(
+        element: AXUIElementRef,
+        attribute: CFStringRef,
+        value: *mut CFTypeRef,
+    ) -> AXError;
+    fn AXUIElementIsAttributeSettable(
+        element: AXUIElementRef,
+        attribute: CFStringRef,
+        settable: *mut Boolean,
+    ) -> AXError;
+    fn AXUIElementSetAttributeValue(
+        element: AXUIElementRef,
+        attribute: CFStringRef,
+        value: CFTypeRef,
+    ) -> AXError;
 }
+
+#[cfg(target_os = "macos")]
+#[link(name = "CoreFoundation", kind = "framework")]
+unsafe extern "C" {
+    fn CFStringCreateWithCString(
+        alloc: *const std::ffi::c_void,
+        c_str: *const std::ffi::c_char,
+        encoding: u32,
+    ) -> CFStringRef;
+    fn CFRelease(cf: CFTypeRef);
+    static kCFBooleanTrue: CFTypeRef;
+}
+
+#[cfg(target_os = "macos")]
+type AXUIElementRef = *const std::ffi::c_void;
+#[cfg(target_os = "macos")]
+type CFTypeRef = *const std::ffi::c_void;
+#[cfg(target_os = "macos")]
+type CFStringRef = *const std::ffi::c_void;
+#[cfg(target_os = "macos")]
+type AXError = i32;
+#[cfg(target_os = "macos")]
+type Boolean = u8;
+
+#[cfg(target_os = "macos")]
+const AX_SUCCESS: AXError = 0;
+#[cfg(target_os = "macos")]
+const K_CF_STRING_ENCODING_UTF8: u32 = 0x0800_0100;
 
 pub fn check_paste_permission_status() -> PastePermissionStatus {
     #[cfg(target_os = "macos")]
@@ -94,15 +139,19 @@ pub fn paste_text(
     // On macOS, prefer direct text insertion at the focused cursor.
     #[cfg(target_os = "macos")]
     {
-        println!("[Typr] Triggering native macOS text insertion");
-        if let Err(err) = run_macos_text_input(app, text) {
-            eprintln!("[Typr] Direct text insertion failed: {}", err);
-            println!("[Typr] Falling back to native macOS paste shortcut");
-            if let Err(paste_err) = run_macos_shortcut(app, 'v') {
-                delivery_error = Some(format!(
-                    "Direct text insertion failed: {}. Paste automation also failed: {}",
-                    err, paste_err
-                ));
+        println!("[Typr] Trying accessibility text insertion");
+        if let Err(ax_err) = run_macos_accessibility_insert(text, focus_target) {
+            eprintln!("[Typr] Accessibility text insertion failed: {}", ax_err);
+            println!("[Typr] Triggering native macOS text insertion");
+            if let Err(text_err) = run_macos_text_input(app, text) {
+                eprintln!("[Typr] Direct text insertion failed: {}", text_err);
+                println!("[Typr] Falling back to native macOS paste shortcut");
+                if let Err(paste_err) = run_macos_shortcut(app, 'v') {
+                    delivery_error = Some(format!(
+                        "Accessibility insertion failed: {}. Direct text insertion failed: {}. Paste automation also failed: {}",
+                        ax_err, text_err, paste_err
+                    ));
+                }
             }
         }
     }
@@ -148,6 +197,143 @@ pub fn paste_text(
         delivered_to_cursor: true,
         detail: "Typr inserted the text at the active cursor and left the same text on your clipboard.".to_string(),
     })
+}
+
+#[cfg(target_os = "macos")]
+fn run_macos_accessibility_insert(
+    text: &str,
+    focus_target: Option<&FocusTarget>,
+) -> Result<(), String> {
+    if let Some(target) = focus_target {
+        enable_manual_accessibility(target)?;
+    }
+
+    let focused_element = unsafe {
+        let app_element = focus_target.and_then(|target| {
+            if target.pid <= 0 {
+                None
+            } else {
+                Some(AXUIElementCreateApplication(target.pid))
+            }
+        });
+        let system_wide = AXUIElementCreateSystemWide();
+        let focused_attr = cfstring("AXFocusedUIElement")?;
+        let mut focused_value: CFTypeRef = std::ptr::null();
+        let focused_result = if let Some(app_element) = app_element {
+            let result = AXUIElementCopyAttributeValue(app_element, focused_attr, &mut focused_value);
+            println!(
+                "[Typr] AXFocusedUIElement via target app pid={} result={}",
+                focus_target.map(|target| target.pid).unwrap_or_default(),
+                result
+            );
+            if result == AX_SUCCESS && !focused_value.is_null() {
+                result
+            } else {
+                AXUIElementCopyAttributeValue(system_wide, focused_attr, &mut focused_value)
+            }
+        } else {
+            AXUIElementCopyAttributeValue(system_wide, focused_attr, &mut focused_value)
+        };
+        CFRelease(focused_attr);
+        CFRelease(system_wide as CFTypeRef);
+        if let Some(app_element) = app_element {
+            CFRelease(app_element as CFTypeRef);
+        }
+
+        if focused_result != AX_SUCCESS || focused_value.is_null() {
+            return Err(format!(
+                "Could not read focused UI element (AXError={})",
+                focused_result
+            ));
+        }
+
+        focused_value as AXUIElementRef
+    };
+
+    let selected_text_attr = cfstring("AXSelectedText")?;
+    let mut selected_text_settable: Boolean = 0;
+    let selected_text_settable_result = unsafe {
+        AXUIElementIsAttributeSettable(
+            focused_element,
+            selected_text_attr,
+            &mut selected_text_settable,
+        )
+    };
+
+    println!(
+        "[Typr] AXSelectedText settable check result={} settable={}",
+        selected_text_settable_result, selected_text_settable
+    );
+
+    if selected_text_settable_result == AX_SUCCESS && selected_text_settable != 0 {
+        let replacement = cfstring(text)?;
+        let set_result = unsafe {
+            AXUIElementSetAttributeValue(focused_element, selected_text_attr, replacement)
+        };
+        unsafe {
+            CFRelease(replacement);
+            CFRelease(selected_text_attr);
+            CFRelease(focused_element as CFTypeRef);
+        }
+
+        if set_result == AX_SUCCESS {
+            println!("[Typr] Accessibility text insertion succeeded via AXSelectedText");
+            return Ok(());
+        }
+
+        return Err(format!(
+            "AXSelectedText write failed with AXError={}",
+            set_result
+        ));
+    }
+
+    unsafe {
+        CFRelease(selected_text_attr);
+        CFRelease(focused_element as CFTypeRef);
+    }
+
+    Err("Focused element does not expose settable AXSelectedText".to_string())
+}
+
+#[cfg(target_os = "macos")]
+fn enable_manual_accessibility(target: &FocusTarget) -> Result<(), String> {
+    if target.pid <= 0 {
+        return Ok(());
+    }
+
+    let manual_attr = cfstring("AXManualAccessibility")?;
+    let app_element = unsafe { AXUIElementCreateApplication(target.pid) };
+    if app_element.is_null() {
+        unsafe {
+            CFRelease(manual_attr);
+        }
+        return Err(format!(
+            "Could not create AX application element for pid {} ({})",
+            target.pid, target.bundle_id
+        ));
+    }
+
+    let result =
+        unsafe { AXUIElementSetAttributeValue(app_element, manual_attr, kCFBooleanTrue) };
+    println!(
+        "[Typr] AXManualAccessibility enable pid={} bundle={} result={}",
+        target.pid, target.bundle_id, result
+    );
+
+    unsafe {
+        CFRelease(manual_attr);
+        CFRelease(app_element as CFTypeRef);
+    }
+
+    if result == AX_SUCCESS {
+        std::thread::sleep(std::time::Duration::from_millis(120));
+        Ok(())
+    } else {
+        Err(format!(
+            "AXManualAccessibility enable failed with AXError={}",
+            result
+        ))
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -207,4 +393,23 @@ fn run_macos_text_input(app: &AppHandle, text: &str) -> Result<(), String> {
 
     rx.recv()
         .map_err(|e| format!("Failed to receive macOS text insertion result: {}", e))?
+}
+
+#[cfg(target_os = "macos")]
+fn cfstring(value: &str) -> Result<CFStringRef, String> {
+    let value =
+        std::ffi::CString::new(value).map_err(|_| "String contained an interior NUL byte".to_string())?;
+    let string = unsafe {
+        CFStringCreateWithCString(
+            std::ptr::null(),
+            value.as_ptr(),
+            K_CF_STRING_ENCODING_UTF8,
+        )
+    };
+
+    if string.is_null() {
+        Err("Failed to allocate CFString".to_string())
+    } else {
+        Ok(string)
+    }
 }

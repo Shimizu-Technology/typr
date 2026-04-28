@@ -242,7 +242,10 @@ mod tests {
         assert_eq!(settings.language, "auto");
         assert_eq!(settings.text_mode, "raw");
         assert_eq!(settings.transform_provider, "none");
-        assert_eq!(settings.openai_transcription_model, "gpt-4o-mini-transcribe");
+        assert_eq!(
+            settings.openai_transcription_model,
+            "gpt-4o-mini-transcribe"
+        );
 
         let _ = fs::remove_dir_all(&dir);
     }

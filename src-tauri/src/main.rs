@@ -125,8 +125,7 @@ fn emit_error_feedback(app: &tauri::AppHandle, detail: &str) {
     {
         (
             "Cloud transcription is not configured",
-            "Store your OpenAI API key securely before using OpenAI transcription."
-                .to_string(),
+            "Store your OpenAI API key securely before using OpenAI transcription.".to_string(),
         )
     } else if detail.contains("OpenAI transcription model is missing") {
         (
@@ -588,15 +587,13 @@ async fn toggle_recording(
     state: State<'_, AppState>,
 ) -> Result<String, String> {
     match do_toggle_recording(&app, &state).await {
-        Ok(result) => {
-            match result {
-                ToggleOutcome::RecordingStarted => Ok("recording".to_string()),
-                ToggleOutcome::Completed(result) => {
-                    emit_delivery_feedback(&app, state.inner(), "Dictation complete", &result);
-                    Ok(result.final_text)
-                }
+        Ok(result) => match result {
+            ToggleOutcome::RecordingStarted => Ok("recording".to_string()),
+            ToggleOutcome::Completed(result) => {
+                emit_delivery_feedback(&app, state.inner(), "Dictation complete", &result);
+                Ok(result.final_text)
             }
-        }
+        },
         Err(err) => {
             emit_error_feedback(&app, &err);
             Err(err)

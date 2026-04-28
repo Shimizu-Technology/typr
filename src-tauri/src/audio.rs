@@ -186,16 +186,18 @@ impl AudioRecorder {
         };
 
         // Downsample to 16kHz for whisper.cpp
-        let resampled = resample(&mono, self.source_sample_rate, 16000);
+        let mut resampled = resample(&mono, self.source_sample_rate, 16000);
+        let raw_peak = normalize_if_clipping(&mut resampled);
         let duration_seconds = resampled.len() as f32 / 16000.0;
         let rms = calculate_rms(&resampled);
         let peak = calculate_peak(&resampled);
         logger::info(&format!(
-            "[Typr] Resampled to {} samples at 16kHz; duration={:.2}s rms={:.6} peak={:.6}",
+            "[Typr] Resampled to {} samples at 16kHz; duration={:.2}s rms={:.6} peak={:.6} raw_peak={:.6}",
             resampled.len(),
             duration_seconds,
             rms,
-            peak
+            peak,
+            raw_peak
         ));
 
         let spec = WavSpec {
@@ -251,10 +253,28 @@ fn calculate_peak(samples: &[f32]) -> f32 {
         .fold(0.0_f32, f32::max)
 }
 
-/// Simple linear interpolation resampler
+fn normalize_if_clipping(samples: &mut [f32]) -> f32 {
+    let peak = calculate_peak(samples);
+    if peak > 1.0 {
+        let scale = peak * 1.01;
+        for sample in samples.iter_mut() {
+            *sample /= scale;
+        }
+    }
+    peak
+}
+
 fn resample(samples: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
     if from_rate == to_rate {
         return samples.to_vec();
+    }
+
+    if samples.is_empty() {
+        return Vec::new();
+    }
+
+    if from_rate > to_rate {
+        return downsample_average(samples, from_rate, to_rate);
     }
 
     let ratio = from_rate as f64 / to_rate as f64;
@@ -273,6 +293,22 @@ fn resample(samples: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
         };
 
         output.push(sample as f32);
+    }
+
+    output
+}
+
+fn downsample_average(samples: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
+    let ratio = from_rate as f64 / to_rate as f64;
+    let output_len = (samples.len() as f64 / ratio).floor() as usize;
+    let mut output = Vec::with_capacity(output_len);
+
+    for i in 0..output_len {
+        let start = (i as f64 * ratio).floor() as usize;
+        let end = (((i + 1) as f64 * ratio).ceil() as usize).min(samples.len());
+        let end = end.max(start + 1).min(samples.len());
+        let sum: f32 = samples[start..end].iter().copied().sum();
+        output.push(sum / (end - start) as f32);
     }
 
     output
@@ -336,4 +372,35 @@ where
 {
     let mut buf = samples.lock().unwrap();
     buf.extend(input);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn downsampling_averages_source_windows() {
+        let samples = vec![0.0, 3.0, 6.0, 9.0, 12.0, 15.0];
+        assert_eq!(resample(&samples, 6, 2), vec![3.0, 12.0]);
+    }
+
+    #[test]
+    fn normalizing_only_scales_clipping_audio() {
+        let mut samples = vec![0.5, 2.0, -1.0];
+        let raw_peak = normalize_if_clipping(&mut samples);
+
+        assert_eq!(raw_peak, 2.0);
+        assert!(calculate_peak(&samples) <= 1.0);
+        assert!(samples[1] > 0.98);
+    }
+
+    #[test]
+    fn normalizing_leaves_in_range_audio_alone() {
+        let mut samples = vec![0.25, -0.5, 0.75];
+        let original = samples.clone();
+        let raw_peak = normalize_if_clipping(&mut samples);
+
+        assert_eq!(raw_peak, 0.75);
+        assert_eq!(samples, original);
+    }
 }

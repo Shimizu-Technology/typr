@@ -240,6 +240,17 @@ fn reject_low_confidence_transcript(
         "" | "you" | "thank you" | "thanks for watching" | "bye" | "bye bye"
     );
 
+    if is_non_speech_marker(transcript) {
+        return Err(format!(
+            "No speech transcript detected. Local Whisper returned a non-speech marker ('{}') from audio captured by '{}' (duration {:.2}s, rms {:.6}, peak {:.6}).",
+            transcript.trim(),
+            summary.device_name,
+            summary.duration_seconds,
+            summary.rms,
+            summary.peak
+        ));
+    }
+
     if known_silence_hallucination && summary.rms < LOW_CONFIDENCE_RMS_THRESHOLD {
         return Err(format!(
             "No clear speech detected. Local Whisper returned a likely silence artifact ('{}') from low-level audio captured by '{}' (duration {:.2}s, rms {:.6}, peak {:.6}).",
@@ -252,6 +263,40 @@ fn reject_low_confidence_transcript(
     }
 
     Ok(())
+}
+
+fn is_non_speech_marker(transcript: &str) -> bool {
+    let trimmed = transcript.trim();
+    if trimmed.len() < 3 {
+        return false;
+    }
+
+    let bracketed = (trimmed.starts_with('(') && trimmed.ends_with(')'))
+        || (trimmed.starts_with('[') && trimmed.ends_with(']'));
+    if !bracketed {
+        return false;
+    }
+
+    let inner = trimmed[1..trimmed.len() - 1].trim().to_ascii_lowercase();
+    matches!(
+        inner.as_str(),
+        "applause"
+            | "background noise"
+            | "beep"
+            | "blank audio"
+            | "breathing"
+            | "buzzing"
+            | "clicking"
+            | "coughing"
+            | "laughter"
+            | "machine noise"
+            | "machine whirring"
+            | "music"
+            | "noise"
+            | "silence"
+            | "static"
+            | "whirring"
+    )
 }
 
 fn preserve_last_recording_for_debug(app_dir: &PathBuf, temp_path: &PathBuf) {
@@ -276,5 +321,27 @@ mod tests {
     fn test_initial_state_is_ready() {
         let recorder = Recorder::new();
         assert_eq!(recorder.get_state(), RecordingState::Ready);
+    }
+
+    #[test]
+    fn rejects_parenthetical_non_speech_markers() {
+        let summary = AudioCaptureSummary {
+            path: PathBuf::from("recording.wav"),
+            device_name: "Test Mic".to_string(),
+            sample_format: "F32".to_string(),
+            duration_seconds: 2.0,
+            rms: 0.2,
+            peak: 0.8,
+            raw_sample_count: 96_000,
+            resampled_sample_count: 32_000,
+        };
+
+        let error = reject_low_confidence_transcript("(static)", &summary).unwrap_err();
+        assert!(error.contains("non-speech marker"));
+    }
+
+    #[test]
+    fn allows_normal_parenthetical_speech() {
+        assert!(!is_non_speech_marker("(testing testing)"));
     }
 }

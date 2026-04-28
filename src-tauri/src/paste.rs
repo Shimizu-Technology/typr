@@ -147,6 +147,20 @@ pub fn paste_text(
         logger::info("[Typr] Trying accessibility text insertion");
         if let Err(ax_err) = run_macos_accessibility_insert(text, focus_target) {
             logger::error(&format!("[Typr] Accessibility text insertion failed: {}", ax_err));
+            if let Some(target) = focus_target {
+                logger::info(&format!(
+                    "[Typr] Re-restoring focus target pid={} before macOS paste fallback",
+                    target.pid
+                ));
+                if let Err(err) = restore_focus_target(target) {
+                    logger::error(&format!(
+                        "[Typr] Focus restore before paste fallback failed for {} (pid={}): {}",
+                        target.bundle_id, target.pid, err
+                    ));
+                } else {
+                    std::thread::sleep(std::time::Duration::from_millis(120));
+                }
+            }
             logger::info("[Typr] Triggering native macOS paste shortcut");
             attempted_fallback_injection = true;
             let target_pid = focus_target.map(|target| target.pid);
@@ -340,7 +354,7 @@ fn copy_focused_element_with_retry(
     let mut last_result = AX_SUCCESS;
     let mut focused_value: CFTypeRef = std::ptr::null();
 
-    for attempt in 1..=20 {
+    for attempt in 1..=5 {
         focused_value = std::ptr::null();
         last_result =
             unsafe { AXUIElementCopyAttributeValue(app_element, focused_attr, &mut focused_value) };
@@ -356,7 +370,11 @@ fn copy_focused_element_with_retry(
             return (last_result, focused_value);
         }
 
-        std::thread::sleep(std::time::Duration::from_millis(120));
+        if last_result == -25211 {
+            break;
+        }
+
+        std::thread::sleep(std::time::Duration::from_millis(80));
     }
 
     (last_result, focused_value)

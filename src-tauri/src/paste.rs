@@ -1,8 +1,8 @@
-use tauri::AppHandle;
 use crate::focus::{restore_focus_target, FocusTarget};
 use crate::logger;
 #[cfg(target_os = "macos")]
 use crate::macos_input::{release_common_modifiers, send_command_shortcut};
+use tauri::AppHandle;
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -116,12 +116,7 @@ pub fn paste_text(
     text: &str,
     focus_target: Option<&FocusTarget>,
 ) -> Result<TextDeliveryResult, String> {
-    // Set clipboard (arboard is thread-safe)
-    let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
-    clipboard.set_text(text).map_err(|e| e.to_string())?;
-
-    // Small delay to ensure clipboard is set
-    std::thread::sleep(std::time::Duration::from_millis(50));
+    write_clipboard_text_verified(text)?;
 
     if let Some(focus_target) = focus_target {
         #[cfg(target_os = "macos")]
@@ -139,46 +134,53 @@ pub fn paste_text(
 
     let mut delivery_error: Option<String> = None;
     let mut verified_delivery = false;
-    let mut attempted_fallback_injection = false;
 
-    // On macOS, prefer direct text insertion at the focused cursor.
+    // On macOS, the real paste path is more reliable than AXSelectedText for
+    // editor-like apps such as Obsidian and Electron shells.
     #[cfg(target_os = "macos")]
     {
-        logger::info("[Typr] Trying accessibility text insertion");
-        if let Err(ax_err) = run_macos_accessibility_insert(text, focus_target) {
-            logger::error(&format!("[Typr] Accessibility text insertion failed: {}", ax_err));
-            if let Some(target) = focus_target {
-                logger::info(&format!(
-                    "[Typr] Re-restoring focus target pid={} before macOS paste fallback",
-                    target.pid
+        let trusted = unsafe { AXIsProcessTrusted() };
+        logger::info(&format!(
+            "[Typr] macOS Accessibility trusted before paste delivery: {}",
+            trusted
+        ));
+
+        logger::info("[Typr] Triggering native macOS paste shortcut");
+        let target_pid = focus_target.map(|target| target.pid);
+        if let Err(paste_err) = run_macos_shortcut_with_retry(app, 'v', target_pid, 3) {
+            logger::error(&format!(
+                "[Typr] Native paste shortcut failed: {}",
+                paste_err
+            ));
+
+            let ax_insert_result = if trusted {
+                logger::info("[Typr] Trying accessibility text insertion fallback");
+                run_macos_accessibility_insert(text, focus_target)
+            } else {
+                Err("macOS Accessibility API is disabled for this Typr binary".to_string())
+            };
+
+            if let Err(ax_err) = ax_insert_result {
+                logger::error(&format!(
+                    "[Typr] Accessibility text insertion fallback failed: {}",
+                    ax_err
                 ));
-                if let Err(err) = restore_focus_target(target) {
-                    logger::error(&format!(
-                        "[Typr] Focus restore before paste fallback failed for {} (pid={}): {}",
-                        target.bundle_id, target.pid, err
-                    ));
-                } else {
-                    std::thread::sleep(std::time::Duration::from_millis(120));
-                }
-            }
-            logger::info("[Typr] Triggering native macOS paste shortcut");
-            attempted_fallback_injection = true;
-            let target_pid = focus_target.map(|target| target.pid);
-            if let Err(paste_err) = run_macos_shortcut_with_retry(app, 'v', target_pid, 3) {
-                logger::error(&format!("[Typr] Native paste shortcut failed: {}", paste_err));
                 logger::info("[Typr] Falling back to native macOS text insertion");
                 if let Err(text_err) = run_macos_text_input(app, text) {
-                    logger::error(&format!("[Typr] Direct text insertion failed: {}", text_err));
+                    logger::error(&format!(
+                        "[Typr] Direct text insertion failed: {}",
+                        text_err
+                    ));
                     delivery_error = Some(format!(
                         "Accessibility insertion failed: {}. Paste shortcut failed: {}. Direct text insertion also failed: {}",
                         ax_err, paste_err, text_err
                     ));
                 }
             } else {
-                logger::info("[Typr] Native macOS paste shortcut completed");
+                verified_delivery = true;
             }
         } else {
-            verified_delivery = true;
+            logger::info("[Typr] Native macOS paste shortcut completed");
         }
     }
 
@@ -221,22 +223,78 @@ pub fn paste_text(
 
     #[cfg(target_os = "macos")]
     if !verified_delivery {
-        let detail = if attempted_fallback_injection {
-            "Typr copied the text to your clipboard and attempted to insert it at the cursor, but macOS did not expose a verifiable accessibility text target for this app in the current session.".to_string()
-        } else {
-            "Typr copied the text to your clipboard, but could not verify insertion at the cursor on macOS.".to_string()
-        };
-
         return Ok(TextDeliveryResult {
             delivered_to_cursor: false,
-            detail,
+            detail: "Typr copied the text to your clipboard and sent paste to the target app, but macOS does not provide a reliable way to verify that the target accepted it.".to_string(),
         });
     }
 
     Ok(TextDeliveryResult {
         delivered_to_cursor: true,
-        detail: "Typr inserted the text at the active cursor and left the same text on your clipboard.".to_string(),
+        detail:
+            "Typr inserted the text at the active cursor and left the same text on your clipboard."
+                .to_string(),
     })
+}
+
+fn write_clipboard_text_verified(text: &str) -> Result<(), String> {
+    let expected = text.to_string();
+    let mut last_error = None;
+
+    for attempt in 1..=5 {
+        match write_clipboard_text_once(&expected) {
+            Ok(()) => {
+                std::thread::sleep(std::time::Duration::from_millis(40));
+                match read_clipboard_text_once() {
+                    Ok(actual) if actual == expected => {
+                        logger::info(&format!(
+                            "[Typr] Clipboard write verified on attempt {} ({} chars)",
+                            attempt,
+                            expected.chars().count()
+                        ));
+                        return Ok(());
+                    }
+                    Ok(actual) => {
+                        last_error = Some(format!(
+                            "Clipboard verification mismatch on attempt {}: expected {} chars, read {} chars",
+                            attempt,
+                            expected.chars().count(),
+                            actual.chars().count()
+                        ));
+                    }
+                    Err(err) => {
+                        last_error = Some(format!(
+                            "Clipboard readback failed on attempt {}: {}",
+                            attempt, err
+                        ));
+                    }
+                }
+            }
+            Err(err) => {
+                last_error = Some(format!(
+                    "Clipboard write failed on attempt {}: {}",
+                    attempt, err
+                ));
+            }
+        }
+
+        std::thread::sleep(std::time::Duration::from_millis(80));
+    }
+
+    Err(format!(
+        "Clipboard write could not be verified: {}",
+        last_error.unwrap_or_else(|| "unknown clipboard failure".to_string())
+    ))
+}
+
+fn write_clipboard_text_once(text: &str) -> Result<(), String> {
+    let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+    clipboard.set_text(text).map_err(|e| e.to_string())
+}
+
+fn read_clipboard_text_once() -> Result<String, String> {
+    let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+    clipboard.get_text().map_err(|e| e.to_string())
 }
 
 #[cfg(target_os = "macos")]
@@ -289,7 +347,10 @@ fn run_macos_accessibility_insert(
 
         if focused_result != AX_SUCCESS || focused_value.is_null() {
             if let Some(bootstrap_error) = accessibility_bootstrap {
-                logger::error(&format!("[Typr] Accessibility bootstrap note: {}", bootstrap_error));
+                logger::error(&format!(
+                    "[Typr] Accessibility bootstrap note: {}",
+                    bootstrap_error
+                ));
             }
             return Err(format!(
                 "Could not read focused UI element (AXError={})",
@@ -492,17 +553,12 @@ fn run_macos_text_input(app: &AppHandle, text: &str) -> Result<(), String> {
         .map_err(|e| format!("Failed to receive macOS text insertion result: {}", e))?
 }
 
-
 #[cfg(target_os = "macos")]
 fn cfstring(value: &str) -> Result<CFStringRef, String> {
-    let value =
-        std::ffi::CString::new(value).map_err(|_| "String contained an interior NUL byte".to_string())?;
+    let value = std::ffi::CString::new(value)
+        .map_err(|_| "String contained an interior NUL byte".to_string())?;
     let string = unsafe {
-        CFStringCreateWithCString(
-            std::ptr::null(),
-            value.as_ptr(),
-            K_CF_STRING_ENCODING_UTF8,
-        )
+        CFStringCreateWithCString(std::ptr::null(), value.as_ptr(), K_CF_STRING_ENCODING_UTF8)
     };
 
     if string.is_null() {

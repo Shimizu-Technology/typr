@@ -22,7 +22,7 @@ pub fn cleanup_text(text: &str) -> String {
     for line in lines {
         if line.trim().is_empty() {
             blank_count += 1;
-            if blank_count <= 2 {
+            if blank_count <= 1 {
                 result.push(String::new());
             }
         } else {

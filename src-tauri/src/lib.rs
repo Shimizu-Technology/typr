@@ -7,6 +7,7 @@ pub mod focus;
 pub mod history;
 pub mod logger;
 pub mod macos_input;
+pub mod mic_permission;
 pub mod paste;
 pub mod recorder;
 pub mod secrets;

@@ -3,15 +3,21 @@ use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::asr::build_asr_provider;
-use crate::audio::AudioRecorder;
+use crate::audio::{AudioCaptureSummary, AudioRecorder};
 use crate::cleanup::cleanup_text;
 use crate::context::capture_selected_text;
 use crate::focus::{capture_focus_target, FocusTarget};
 use crate::history::append_history_entry;
 use crate::history::build_history_entry;
+use crate::logger;
 use crate::paste::{paste_text, TextDeliveryResult};
 use crate::settings::Settings;
 use crate::transform::apply_text_transform;
+
+const MIN_TRANSCRIBABLE_DURATION_SECONDS: f32 = 0.30;
+const SILENCE_RMS_THRESHOLD: f32 = 0.0005;
+const SILENCE_PEAK_THRESHOLD: f32 = 0.005;
+const LOW_CONFIDENCE_RMS_THRESHOLD: f32 = 0.005;
 
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -138,10 +144,12 @@ impl Recorder {
         let temp_file_guard = TempFileGuard::new(temp_path.clone());
 
         // Save audio
-        {
+        let audio_summary = {
             let mut recorder = self.audio_recorder.lock().unwrap();
-            recorder.stop_and_save(&temp_path)?;
-        }
+            recorder.stop_and_save(&temp_path)?
+        };
+        preserve_last_recording_for_debug(app_dir, &temp_path);
+        validate_audio_capture(&audio_summary)?;
 
         let selected_text = if settings.text_mode == "command" {
             Some(capture_selected_text(app)?)
@@ -153,7 +161,13 @@ impl Recorder {
         let raw_text = asr_provider.transcribe(app, &temp_path).await?;
 
         let cleaned = cleanup_text(&raw_text);
+        logger::info(&format!(
+            "[Typr] Transcript raw='{}' cleaned='{}'",
+            raw_text, cleaned
+        ));
+        reject_low_confidence_transcript(&cleaned, &audio_summary)?;
         let final_text = apply_text_transform(settings, &cleaned, selected_text.clone()).await?;
+        logger::info(&format!("[Typr] Final text='{}'", final_text));
 
         let history_entry =
             build_history_entry(settings, &cleaned, &final_text, selected_text.clone());
@@ -191,6 +205,66 @@ impl Recorder {
         drop(state_guard);
 
         Ok(result)
+    }
+}
+
+fn validate_audio_capture(summary: &AudioCaptureSummary) -> Result<(), String> {
+    if summary.duration_seconds < MIN_TRANSCRIBABLE_DURATION_SECONDS {
+        return Err(format!(
+            "No clear speech detected. The recording was only {:.2}s long.",
+            summary.duration_seconds
+        ));
+    }
+
+    if summary.rms < SILENCE_RMS_THRESHOLD && summary.peak < SILENCE_PEAK_THRESHOLD {
+        return Err(format!(
+            "No clear speech detected. The selected microphone '{}' produced near-silent audio (duration {:.2}s, rms {:.6}, peak {:.6}). Check macOS Microphone permission for Typr and confirm the selected input is not muted.",
+            summary.device_name, summary.duration_seconds, summary.rms, summary.peak
+        ));
+    }
+
+    Ok(())
+}
+
+fn reject_low_confidence_transcript(
+    transcript: &str,
+    summary: &AudioCaptureSummary,
+) -> Result<(), String> {
+    let normalized = transcript
+        .trim()
+        .trim_matches(|ch: char| ch.is_ascii_punctuation())
+        .to_ascii_lowercase();
+
+    let known_silence_hallucination = matches!(
+        normalized.as_str(),
+        "" | "you" | "thank you" | "thanks for watching" | "bye" | "bye bye"
+    );
+
+    if known_silence_hallucination && summary.rms < LOW_CONFIDENCE_RMS_THRESHOLD {
+        return Err(format!(
+            "No clear speech detected. Local Whisper returned a likely silence artifact ('{}') from low-level audio captured by '{}' (duration {:.2}s, rms {:.6}, peak {:.6}).",
+            transcript.trim(),
+            summary.device_name,
+            summary.duration_seconds,
+            summary.rms,
+            summary.peak
+        ));
+    }
+
+    Ok(())
+}
+
+fn preserve_last_recording_for_debug(app_dir: &PathBuf, temp_path: &PathBuf) {
+    let debug_path = app_dir.join("last_recording.wav");
+    match std::fs::copy(temp_path, &debug_path) {
+        Ok(_) => logger::info(&format!(
+            "[Typr] Saved last recording debug copy to {}",
+            debug_path.display()
+        )),
+        Err(err) => logger::error(&format!(
+            "[Typr] Could not save last recording debug copy: {}",
+            err
+        )),
     }
 }
 

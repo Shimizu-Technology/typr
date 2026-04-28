@@ -39,7 +39,7 @@ pub fn capture_selected_text(app: &AppHandle) -> Result<String, String> {
 fn trigger_copy_shortcut(app: &AppHandle) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        send_command_shortcut(app, 'c')
+        send_command_shortcut(app, 'c', None)
             .map_err(|err| format!("Copy automation failed: {}", err))?;
     }
 

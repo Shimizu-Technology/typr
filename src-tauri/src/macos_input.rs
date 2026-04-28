@@ -15,7 +15,7 @@ use tauri::AppHandle;
 const SHORTCUT_TAP_LOCATION: CGEventTapLocation = CGEventTapLocation::AnnotatedSession;
 
 #[cfg(target_os = "macos")]
-pub fn send_command_shortcut(app: &AppHandle, key: char) -> Result<(), String> {
+pub fn send_command_shortcut(app: &AppHandle, key: char, target_pid: Option<i32>) -> Result<(), String> {
     let keycode = shortcut_keycode(key)?;
     let (tx, rx) = mpsc::channel();
 
@@ -24,9 +24,10 @@ pub fn send_command_shortcut(app: &AppHandle, key: char) -> Result<(), String> {
             release_common_modifiers()?;
             let source = CGEventSource::new(CGEventSourceStateID::CombinedSessionState)
                 .map_err(|err| format!("Failed creating CGEvent source: {:?}", err))?;
+            let target = shortcut_target_description(target_pid);
             logger::info(&format!(
-                "[Typr] Dispatching explicit macOS Command shortcut sequence for '{}' via {:?}",
-                key, SHORTCUT_TAP_LOCATION
+                "[Typr] Dispatching explicit macOS Command shortcut sequence for '{}' via {}",
+                key, target
             ));
 
             let command_down = new_keyboard_event(
@@ -35,7 +36,7 @@ pub fn send_command_shortcut(app: &AppHandle, key: char) -> Result<(), String> {
                 true,
                 CGEventFlags::CGEventFlagCommand,
             )?;
-            command_down.post(SHORTCUT_TAP_LOCATION);
+            post_shortcut_event(&command_down, target_pid);
 
             std::thread::sleep(std::time::Duration::from_millis(12));
 
@@ -45,7 +46,7 @@ pub fn send_command_shortcut(app: &AppHandle, key: char) -> Result<(), String> {
                 true,
                 CGEventFlags::CGEventFlagCommand,
             )?;
-            key_down.post(SHORTCUT_TAP_LOCATION);
+            post_shortcut_event(&key_down, target_pid);
 
             std::thread::sleep(std::time::Duration::from_millis(12));
 
@@ -55,7 +56,7 @@ pub fn send_command_shortcut(app: &AppHandle, key: char) -> Result<(), String> {
                 false,
                 CGEventFlags::CGEventFlagCommand,
             )?;
-            key_up.post(SHORTCUT_TAP_LOCATION);
+            post_shortcut_event(&key_up, target_pid);
 
             std::thread::sleep(std::time::Duration::from_millis(12));
 
@@ -65,7 +66,7 @@ pub fn send_command_shortcut(app: &AppHandle, key: char) -> Result<(), String> {
                 false,
                 CGEventFlags::CGEventFlagNull,
             )?;
-            command_up.post(SHORTCUT_TAP_LOCATION);
+            post_shortcut_event(&command_up, target_pid);
 
             Ok(())
         })();
@@ -87,6 +88,24 @@ pub fn release_common_modifiers() -> Result<(), String> {
             .map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn post_shortcut_event(event: &CGEvent, target_pid: Option<i32>) {
+    if let Some(pid) = target_pid.filter(|pid| *pid > 0) {
+        event.post_to_pid(pid);
+    } else {
+        event.post(SHORTCUT_TAP_LOCATION);
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn shortcut_target_description(target_pid: Option<i32>) -> String {
+    if let Some(pid) = target_pid.filter(|pid| *pid > 0) {
+        format!("target pid {}", pid)
+    } else {
+        format!("{:?}", SHORTCUT_TAP_LOCATION)
+    }
 }
 
 #[cfg(target_os = "macos")]

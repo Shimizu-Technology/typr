@@ -149,7 +149,8 @@ pub fn paste_text(
             logger::error(&format!("[Typr] Accessibility text insertion failed: {}", ax_err));
             logger::info("[Typr] Triggering native macOS paste shortcut");
             attempted_fallback_injection = true;
-            if let Err(paste_err) = run_macos_shortcut_with_retry(app, 'v', 3) {
+            let target_pid = focus_target.map(|target| target.pid);
+            if let Err(paste_err) = run_macos_shortcut_with_retry(app, 'v', target_pid, 3) {
                 logger::error(&format!("[Typr] Native paste shortcut failed: {}", paste_err));
                 logger::info("[Typr] Falling back to native macOS text insertion");
                 if let Err(text_err) = run_macos_text_input(app, text) {
@@ -424,7 +425,12 @@ fn enable_target_accessibility(target: &FocusTarget) -> Option<String> {
 }
 
 #[cfg(target_os = "macos")]
-fn run_macos_shortcut_with_retry(app: &AppHandle, key: char, attempts: usize) -> Result<(), String> {
+fn run_macos_shortcut_with_retry(
+    app: &AppHandle,
+    key: char,
+    target_pid: Option<i32>,
+    attempts: usize,
+) -> Result<(), String> {
     let mut last_error = None;
 
     for attempt in 1..=attempts {
@@ -433,7 +439,7 @@ fn run_macos_shortcut_with_retry(app: &AppHandle, key: char, attempts: usize) ->
             attempt, attempts
         ));
 
-        match send_command_shortcut(app, key) {
+        match send_command_shortcut(app, key, target_pid) {
             Ok(()) => return Ok(()),
             Err(err) => {
                 last_error = Some(err);

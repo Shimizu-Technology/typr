@@ -86,7 +86,7 @@ pub fn check_paste_permission_status() -> PastePermissionStatus {
             PastePermissionStatus {
                 supported: true,
                 ready: false,
-                detail: "Paste automation is blocked. Enable Accessibility access for Typr before it can copy selections or paste text into other apps.".to_string(),
+                detail: "Paste automation is blocked. Enable Accessibility access for the current Typr.app build before Typr can paste text into other apps automatically.".to_string(),
             }
         }
     }
@@ -144,6 +144,16 @@ pub fn paste_text(
             "[Typr] macOS Accessibility trusted before paste delivery: {}",
             trusted
         ));
+
+        if !trusted {
+            logger::error(
+                "[Typr] Automatic paste skipped because macOS Accessibility is not trusted",
+            );
+            return Ok(TextDeliveryResult {
+                delivered_to_cursor: false,
+                detail: "Typr copied the text to your clipboard, but macOS is blocking automatic paste. Enable Accessibility access for the current Typr.app build, then restart Typr and try again.".to_string(),
+            });
+        }
 
         logger::info("[Typr] Triggering native macOS paste shortcut");
         let target_pid = focus_target.map(|target| target.pid);

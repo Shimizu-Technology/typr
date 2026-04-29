@@ -1,10 +1,6 @@
 #[cfg(target_os = "macos")]
 use crate::logger;
 #[cfg(target_os = "macos")]
-use core_graphics::event::{CGEvent, CGEventFlags, CGEventTapLocation};
-#[cfg(target_os = "macos")]
-use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
-#[cfg(target_os = "macos")]
 use enigo::{Direction, Enigo, Key, Keyboard, Settings};
 #[cfg(target_os = "macos")]
 use std::sync::mpsc;
@@ -31,11 +27,11 @@ pub fn send_command_shortcut(
 
             let target = shortcut_target_description(target_pid);
             logger::info(&format!(
-                "[Typr] Dispatching CoreGraphics macOS Command shortcut sequence for '{}' via {}",
+                "[Typr] Dispatching HID macOS Command shortcut sequence for '{}' via {}",
                 key, target
             ));
 
-            send_core_graphics_command_shortcut(keycode, target_pid)?;
+            send_hid_command_shortcut(keycode)?;
 
             Ok(())
         })();
@@ -69,36 +65,33 @@ fn shortcut_target_description(target_pid: Option<i32>) -> String {
 }
 
 #[cfg(target_os = "macos")]
-fn send_core_graphics_command_shortcut(
-    keycode: u16,
-    target_pid: Option<i32>,
-) -> Result<(), String> {
-    let source = CGEventSource::new(CGEventSourceStateID::HIDSystemState)
-        .map_err(|_| "Could not create CoreGraphics HID event source".to_string())?;
-    let command_flags = CGEventFlags::CGEventFlagCommand;
+fn send_hid_command_shortcut(keycode: u16) -> Result<(), String> {
+    let mut enigo = Enigo::new(&Settings::default()).map_err(|e| e.to_string())?;
 
-    let key_down = CGEvent::new_keyboard_event(source.clone(), keycode, true)
-        .map_err(|_| "Could not create CoreGraphics key-down event".to_string())?;
-    key_down.set_flags(command_flags);
-    let key_up = CGEvent::new_keyboard_event(source, keycode, false)
-        .map_err(|_| "Could not create CoreGraphics key-up event".to_string())?;
-    key_up.set_flags(command_flags);
+    enigo
+        .key(Key::Meta, Direction::Press)
+        .map_err(|e| e.to_string())?;
+    std::thread::sleep(std::time::Duration::from_millis(18));
 
-    post_keyboard_event(&key_down, target_pid);
+    let key_down_result = enigo
+        .raw(keycode, Direction::Press)
+        .map_err(|e| e.to_string());
     std::thread::sleep(std::time::Duration::from_millis(18));
-    post_keyboard_event(&key_up, target_pid);
+
+    let key_up_result = enigo
+        .raw(keycode, Direction::Release)
+        .map_err(|e| e.to_string());
     std::thread::sleep(std::time::Duration::from_millis(18));
+
+    let command_release_result = enigo
+        .key(Key::Meta, Direction::Release)
+        .map_err(|e| e.to_string());
+
+    key_down_result?;
+    key_up_result?;
+    command_release_result?;
 
     Ok(())
-}
-
-#[cfg(target_os = "macos")]
-fn post_keyboard_event(event: &CGEvent, target_pid: Option<i32>) {
-    if let Some(pid) = target_pid.filter(|pid| *pid > 0) {
-        event.post_to_pid(pid);
-    } else {
-        event.post(CGEventTapLocation::HID);
-    }
 }
 
 #[cfg(target_os = "macos")]

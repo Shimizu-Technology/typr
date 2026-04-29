@@ -319,7 +319,7 @@ fn get_setup_status(state: State<AppState>) -> SetupStatus {
     let steps = if cfg!(target_os = "macos") {
         vec![
             "Allow microphone access for Typr when macOS prompts you.".to_string(),
-            "Grant Accessibility access so Typr can copy selections and paste text into other apps. In dev mode, add the target/debug/typr binary if needed.".to_string(),
+            "Grant Accessibility access to the current Typr.app build so Typr can paste text into other apps. After rebuilding the debug app, remove any old Typr entry and add the rebuilt app again if macOS still reports paste automation as blocked.".to_string(),
             "Keep LM Studio running if you use Polished or Command mode with a local rewrite model."
                 .to_string(),
         ]

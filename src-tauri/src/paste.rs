@@ -192,6 +192,7 @@ pub fn paste_text(
             }
         } else {
             logger::info("[Typr] Native macOS paste shortcut completed");
+            verified_delivery = true;
         }
     }
 

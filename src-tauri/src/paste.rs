@@ -144,6 +144,7 @@ pub fn paste_text(
             "[Typr] macOS Accessibility trusted before paste delivery: {}",
             trusted
         ));
+        log_macos_accessibility_context(focus_target);
 
         if !trusted {
             logger::error(
@@ -245,6 +246,31 @@ pub fn paste_text(
             "Typr inserted the text at the active cursor and left the same text on your clipboard."
                 .to_string(),
     })
+}
+
+#[cfg(target_os = "macos")]
+fn log_macos_accessibility_context(focus_target: Option<&FocusTarget>) {
+    let current_exe = std::env::current_exe()
+        .map(|path| path.display().to_string())
+        .unwrap_or_else(|err| format!("unavailable ({})", err));
+    let current_dir = std::env::current_dir()
+        .map(|path| path.display().to_string())
+        .unwrap_or_else(|err| format!("unavailable ({})", err));
+    let process_id = std::process::id();
+
+    logger::info(&format!(
+        "[Typr] Accessibility context: pid={} exe='{}' cwd='{}'",
+        process_id, current_exe, current_dir
+    ));
+
+    if let Some(target) = focus_target {
+        logger::info(&format!(
+            "[Typr] Accessibility context target: {} ({}) pid={}",
+            target.app_name, target.bundle_id, target.pid
+        ));
+    } else {
+        logger::info("[Typr] Accessibility context target: none captured");
+    }
 }
 
 fn write_clipboard_text_verified(text: &str) -> Result<(), String> {
